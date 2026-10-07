@@ -85,6 +85,8 @@ const APP_REPLACEMENTS = [
     'const { ME_DEFAULTS, readMe, applyMe, meSummary } = __me;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/friend-ui\.js['"];?/,
     'const { createFriendUI } = __friendUI;'],
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/mood\.js['"];?/,
+    'const { MOODS, MOOD_KEYS, MAX_SHOWN, moodMeta, topMoods, decayMood, blend, normalize: normalizeMood, parseMoodBlock, guessMood, moodBlock, moodText } = __mood;'],
   [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/personas\.js['"];?/,
     'const { PERSONAS_KEY, DEFAULT_ID, migrate, keysFor, activeKeys, orderedList, byRecency, findPersona, addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread } = __personas;'],
 ];
@@ -127,6 +129,8 @@ const EXPORTS = {
   presets: ['PERSONA_PRESETS', 'findPreset', 'presetToForm'],
   me: ['ME_DEFAULTS', 'readMe', 'meIsEmpty', 'meSignature', 'applyMe', 'meSummary'],
   friendUI: ['createFriendUI'],
+  mood: ['MOODS', 'MOOD_KEYS', 'MAX_SHOWN', 'HALF_LIFE_MIN', 'FLOOR', 'moodMeta', 'decayMood',
+    'blend', 'topMoods', 'parseMoodBlock', 'normalize', 'guessMood', 'moodBlock', 'moodText'],
 };
 
 /**
@@ -158,6 +162,7 @@ export function inlineScript(dir = '') {
     presets: inlinable(read('src/presets.js')),
     me: inlinable(read('src/me.js')),
     friendUI: inlinable(read('src/friend-ui.js')),
+    mood: inlinable(read('src/mood.js')),
   };
 
   let appSrc = read('src/app.js');
@@ -194,6 +199,9 @@ export function inlineScript(dir = '') {
       })();
       const __friendUI = (function () { ${src.friendUI}
         return { ${pick(EXPORTS.friendUI)} };
+      })();
+      const __mood = (function () { ${src.mood}
+        return { ${pick(EXPORTS.mood)} };
       })();
       const __memory = (function (OBSESSION_EMO) { ${src.memory}
         return { ${pick(EXPORTS.memory)} };

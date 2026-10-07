@@ -52,6 +52,10 @@ import {
 import { ME_DEFAULTS, readMe, applyMe, meSummary } from './me.js';
 import { createFriendUI } from './friend-ui.js';
 import {
+  MOODS, MOOD_KEYS, MAX_SHOWN, moodMeta, topMoods, decayMood, blend, normalize as normalizeMood,
+  parseMoodBlock, guessMood, moodBlock, moodText,
+} from './mood.js';
+import {
   PERSONAS_KEY, DEFAULT_ID,
   migrate, keysFor, activeKeys, orderedList, byRecency, findPersona,
   addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread,
@@ -320,7 +324,6 @@ const renderMsgList = () => friendUI.renderMsgList();
 const renderMe = () => friendUI.renderMe();
 const refreshUnreadDot = () => friendUI.refreshUnreadDot();
 const bindHome = () => friendUI.bindHome();
-const renderMoodStrip = () => {};   // 旁白/情绪那一块还没做，后面几步会填
 
 // ---------------------------------------------------------------- 存储
 //
@@ -415,6 +418,109 @@ function saveProfile() {
 
 /** 存好友索引（列表、顺序、当前是谁） */
 const savePersonaIndex = () => writeJSON(PERSONAS_KEY, state.nav);
+
+// ---------------------------------------------------------------- 实时情绪
+//
+// 三个"情绪"别搞混（详见 src/mood.js 顶部那张表）：
+//   情绪强度（emotion.js，一件事有多重）／好感度（affection.js，长期温度）
+//   ／实时情绪（mood.js，此刻的心情）。
+// 实时情绪**只影响她怎么说话**，绝不去改好感度 —— 不然"刚才生气了"
+// 会变成永久扣分，聊几句就掉到底。
+
+/** 当前好友此刻的情绪（存在他的档案里，所以每个好友各是各的） */
+const currentMood = () => state.profile.mood || null;
+
+/**
+ * 把新情绪并进去（并落盘 + 重画那一条）。
+ *
+ * 先按"距上次多久"衰减再加 —— 所以这里要记 `moodAt`。
+ */
+function applyMood(incoming) {
+  if (!incoming) return false;
+  const t = now();
+  const last = Number(state.profile.moodAt) || t;
+  const dtMin = Math.max(0, (t - last) / 60000);
+  state.profile.mood = blend(currentMood(), incoming, dtMin);
+  state.profile.moodAt = t;
+  saveProfile();
+  renderMoodStrip();
+  renderEmojiPanelForMood();
+  return true;
+}
+
+/** 时间在走，情绪也会退：每次画界面时顺手按时间衰减一遍 */
+function decayCurrentMood() {
+  const mood = currentMood();
+  if (!mood) return;
+  const t = now();
+  const last = Number(state.profile.moodAt) || t;
+  const dtMin = (t - last) / 60000;
+  if (dtMin < 3) return;                  // 三分钟内不用重算，省得频繁写盘
+  state.profile.mood = decayMood(mood, dtMin);
+  state.profile.moodAt = t;
+  saveProfile();
+}
+
+/**
+ * 顶栏下面那条实时情绪。
+ * 没有情绪就整条收起来 —— 不留一条空白占地方。
+ */
+function renderMoodStrip() {
+  const el = $('#moodStrip');
+  if (!el) return;
+  // 每次画之前先按时间衰减一遍 —— 这是"情绪会退"唯一被真正执行的地方。
+  // （忘了调它的话，情绪会永远挂在那个百分比上。）
+  decayCurrentMood();
+  const top = topMoods(currentMood());
+  if (!top.length) { el.hidden = true; el.innerHTML = ''; return; }
+
+  el.hidden = false;
+  el.innerHTML = top.map((m) => `
+    <span class="wx-mood-chip" style="color:${m.color}">
+      <i></i>${esc(m.emoji)}<b>${esc(m.label)}</b>
+      <span style="color:#888">${m.value}%</span>
+    </span>`).join('');
+}
+
+/**
+ * 表情面板跟着情绪走：把她当前情绪对应的表情排在前面。
+ * （用户要求"表情和颜文字要和情绪做关联匹配" —— 一半靠提示词，
+ *   另一半靠这里把顺手的表情递到她面前。）
+ */
+const MOOD_EMOJI_ORDER = {
+  joy: ['😄', '😆', '🥰', '✨', '🎉', '哈哈哈哈'],
+  anger: ['😤', '💢', '🙄', '😒'],
+  sad: ['🥺', '😔', '💧', '(｡•́︿•̀｡)'],
+  love: ['💗', '🥺', '😳', '💞', '(///▽///)'],
+  jealous: ['😤', '🙄', '😒', '(￣へ￣)'],
+  anxious: ['🥺', '😰', '😖'],
+  shy: ['😳', '☺️', '🙈', '(*/ω＼*)'],
+  tired: ['😩', '😪', '🫠'],
+};
+
+/** 按当前情绪重排表情面板（没情绪就保持原样） */
+function renderEmojiPanelForMood() {
+  const grid = $('#emojiGrid');
+  if (!grid || grid.hidden) return;
+  const top = topMoods(currentMood(), 2);
+  if (!top.length) return;
+  const first = MOOD_EMOJI_ORDER[top[0].key] || [];
+  const rest = EMOJIS.filter((e) => !first.includes(e));
+  grid.innerHTML = [...first.filter((e) => EMOJIS.includes(e)), ...rest]
+    .map((e) => `<button type="button" data-emoji="${esc(e)}">${esc(e)}</button>`).join('');
+}
+
+// ---------------------------------------------------------------- 旁白
+//
+// 旁白 = 环境 / 动作 / 内心想法。和"我说的话"分开存（`narr: true`），
+// 这样模型能分清哪句是台词、哪句是场景说明。
+// 存进去之前套上（　），她看到的是一条"舞台说明"。
+
+/** 旁白进模型上下文时的样子 */
+const narrLine = (text) => `（${String(text || '').trim()}）`;
+
+/** 界面上旁白气泡的样子（灰、斜体、居中，一眼看出不是她说的话） */
+const isNarration = (m) => !!m?.narr;
 
 /**
  * 场景随时间自然演变。
@@ -695,7 +801,8 @@ function maybeTimeDivider(ts, prevTs) {
 
 function messageHTML(msg, prev, idx) {
   const out = msg.role === 'user';
-  const emojiOnly = isEmojiOnly(msg.content);
+  const nar = isNarration(msg);
+  const emojiOnly = !nar && isEmojiOnly(msg.content);
   const cls = [
     'wx-row',
     out ? 'out' : 'in',
@@ -705,6 +812,13 @@ function messageHTML(msg, prev, idx) {
   // 搜索命中后要"跳到那一条"，没有这个就只能靠数 DOM 节点——
   // 中间还夹着时间分隔条，数不准。
   const at = Number.isInteger(idx) ? ` data-i="${idx}"` : '';
+  // 旁白：不要头像、不要气泡底色 —— 它是"场景说明"，不是谁说的话
+  if (nar) {
+    return `${maybeTimeDivider(msg.ts, prev?.ts)}
+    <div class="wx-row narr"${at}>
+      <div class="wx-bubble narr">（${esc(msg.content)}）</div>
+    </div>`;
+  }
   return `${maybeTimeDivider(msg.ts, prev?.ts)}
     <div class="${cls}"${at}>
       ${avatarHTML(out ? 'me' : 'her')}
@@ -723,6 +837,7 @@ function renderChat() {
   }
   box.innerHTML = html;
   scrollToLatest(true);
+  renderMoodStrip();
 }
 
 function appendRow(msg) {
@@ -775,9 +890,19 @@ function autoGrow() {
 }
 
 function syncSendBtn() {
-  const has = $('#input').value.trim().length > 0;
+  // 发送键是"消息框 + 旁白框"共用的：**两边任一有字**就该露出来。
+  // 只认消息框的话，只填了旁白时按钮不出现 —— 那就没法只发一个动作了。
+  const msg = $('#input').value.trim().length > 0;
+  const nar = ($('#narrInput')?.value || '').trim().length > 0;
+  const has = msg || nar;
   $('#btnSend').hidden = !has || state.generating;
   $('#btnPlus').classList.toggle('off', has);
+  // 旁白框有字时把发送键标一下"这是发旁白"，免得他以为发错地方了
+  const btn = $('#btnSend');
+  if (btn) {
+    btn.classList.toggle('narr', nar && !msg);
+    btn.textContent = nar && !msg ? '发旁白' : '发送';
+  }
 }
 
 function closePanels() {
@@ -839,8 +964,15 @@ function setNavSub(text) {
 
 async function send() {
   const input = $('#input');
+  const narr = $('#narrInput');
+  const narrText = narr ? narr.value.trim() : '';
   const text = input.value.trim();
-  if (!text || state.generating) return;
+
+  // 共用发送键：**旁白框里有字就发旁白**，否则发消息。
+  // 两条都空就什么都不做（也不报错，微信里点空发送本来就没反应）。
+  const asNarration = !!narrText;
+  const payload = asNarration ? narrText : text;
+  if (!payload || state.generating) return;
 
   if (!hasKey()) {
     toast('先填一个 API Key');
@@ -849,26 +981,37 @@ async function send() {
   }
 
   closePanels();
-  input.value = '';
-  autoGrow();
+  if (asNarration) {
+    narr.value = '';
+  } else {
+    input.value = '';
+    autoGrow();
+  }
   syncSendBtn();
   buzz();
 
   // 他出现了，重置"主动开口"的次数
   state.idleSpoken = 0;
 
-  const userMsg = { role: 'user', content: text, ts: now() };
+  const userMsg = asNarration
+    ? { role: 'user', content: payload, ts: now(), narr: true }
+    : { role: 'user', content: payload, ts: now() };
   state.messages.push(userMsg);
   appendRow(userMsg);
   scrollToLatest(true);
   saveChat();
 
-  // 好感度跟着他这句话的冷暖动一点点（见 affection.js 的 drift）
-  bumpAffection(text);
+  if (!asNarration) {
+    // 好感度跟着他这句话的冷暖动一点点（见 affection.js 的 drift）
+    bumpAffection(text);
 
-  // 他这句话是不是在把关系定下来（表白 / 求婚 / 分手）？
-  // 设置里的关系要是还停在旧的，下一轮提示词就会把她拉回去 —— 所以这里要提示用户改。
-  noteRelationSignal(text);
+    // 他这句话是不是在把关系定下来（表白 / 求婚 / 分手）？
+    // 设置里的关系要是还停在旧的，下一轮提示词就会把她拉回去 —— 所以这里要提示用户改。
+    noteRelationSignal(text);
+
+    // 他这句话也会影响她此刻的情绪（本地兜底那份，模型那份在她的回复里）
+    applyMood(guessMood(text));
+  }
 
   await respond();
 }
@@ -1017,7 +1160,8 @@ function buildChatContext(maxChars, maxMsgs) {
     const len = [...String(m.content)].length;
     if (picked.length >= maxMsgs) break;
     if (used + len > recentBudget && picked.length >= 6) break;
-    picked.unshift({ role: m.role, content: m.content });
+    // 旁白要包起来再给模型 —— 不包的话它会把"（她走到窗边）"当成一句台词来回应
+    picked.unshift({ role: m.role, content: isNarration(m) ? narrLine(m.content) : m.content });
     used += len;
   }
   return picked;
@@ -1101,6 +1245,8 @@ async function respond() {
       herName: herName(),
       persona: personaForPrompt(),
       me: myMe(),
+      mood: moodBlock(currentMood()),
+      narration: true,
       affection: affection(),
       affectionBase: state.profile.affectionBase,
       relation: state.config.herRelation,
@@ -1186,10 +1332,15 @@ async function respond() {
       });
     }
 
-    const { clean, mem } = extractMemory(full);
-    applyMemory(mem);
+    // 她回复末尾可能带两个隐藏块：记忆 和 情绪（顺序无所谓，都要擦干净）
+    const memCut = extractMemory(full);
+    applyMemory(memCut.mem);
+    const moodCut = parseMoodBlock(memCut.clean);
+    // 模型不配合时（没带情绪块）用他刚说的那句话本地兜底推一个
+    const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')?.content || '';
+    applyMood(moodCut.mood || guessMood(lastUser));
 
-    const parts = splitMessages(clean, Number(state.config.burst) || 2);
+    const parts = splitMessages(moodCut.clean, Number(state.config.burst) || 2);
 
     if (!parts.length) {
       hideTyping();
@@ -1296,17 +1447,18 @@ function applyProvider(id) {
   if (p.id !== 'custom') {
     state.config.endpoint = p.endpoint;
     state.config.model = p.model;
-    $('#inpEndpoint').value = p.endpoint;
+    if ($('#inpEndpoint')) $('#inpEndpoint').value = p.endpoint;
   }
   // 模型下拉
   const models = p.models?.length ? p.models : [state.config.model || ''];
+  if (!$('#inpModel')) return;   // 设置页已经不放模型下拉了
   $('#inpModel').innerHTML = models
     .map((m) => `<option value="${esc(m)}">${esc(m)}</option>`)
     .join('');
   $('#inpModel').value = state.config.model || models[0] || '';
 
   // 说明与申请入口
-  $('#providerHint').textContent = p.hint || '';
+  if ($('#providerHint')) $('#providerHint').textContent = p.hint || '';
   const link = $('#signupLink');
   if (p.signup) {
     link.href = p.signup;
@@ -1317,6 +1469,7 @@ function applyProvider(id) {
   // 非自定义时地址由预置决定，不让误改；本地模型除外——手机必须把
   // 127.0.0.1 换成电脑的局域网 IP，所以本地服务商允许编辑地址。
   const lockEndpoint = p.id !== 'custom' && !p.local;
+  if (!$('#inpEndpoint')) return;
   $('#inpEndpoint').readOnly = lockEndpoint;
   $('#inpEndpoint').classList.toggle('locked', lockEndpoint);
 
@@ -1335,7 +1488,7 @@ function applyProvider(id) {
 }
 
 function onProviderChange() {
-  applyProvider($('#inpProvider').value);
+  applyProvider($('#inpProvider')?.value || state.config.provider);
   saveConfig();
   $('#testResult').hidden = true;
 }
@@ -1349,6 +1502,7 @@ function syncSettingsUI() {
   const otherLocal = all.filter((p) => p.local && !p.native);
   const cloud = all.filter((p) => !p.local);
   const opt = (p) => `<option value="${p.id}">${esc(p.name)}</option>`;
+  if (!$('#inpProvider')) return;
   $('#inpProvider').innerHTML =
     (nativeP.length ? `<optgroup label="手机本地（完全离线）">${nativeP.map(opt).join('')}</optgroup>` : '') +
     (otherLocal.length ? `<optgroup label="连电脑使用（需要电脑开着）">${otherLocal.map(opt).join('')}</optgroup>` : '') +
@@ -1408,10 +1562,10 @@ function renderNativeModelPanel() {
 function toggleNativePanel() {
   const p = getProvider(state.config.provider);
   if (!p.native) {
-    $('#nativePanel').hidden = true;
+    if ($('#nativePanel')) $('#nativePanel').hidden = true;
     return;
   }
-  $('#nativePanel').hidden = false;
+  if ($('#nativePanel')) $('#nativePanel').hidden = false;
   renderNativeModelPanel();
 }
 
@@ -1616,8 +1770,8 @@ async function runSelfTest() {
 function readForm() {
   const k = $('#inpKey').value.trim();
   if (k) state.config.apiKey = k;
-  state.config.model = $('#inpModel').value || state.config.model;
-  const ep = $('#inpEndpoint').value.trim();
+  state.config.model = $('#inpModel')?.value || state.config.model || LOCKED_MODEL;
+  const ep = ($('#inpEndpoint')?.value || '').trim();
   if (ep) state.config.endpoint = ep;
   state.config.userName = $('#inpUserName').value.trim().slice(0, 12);
   if (state.config.userName) state.profile.name = state.config.userName;
@@ -2928,6 +3082,8 @@ async function speakUp(reason) {
         herName: herName(),
         persona: personaForPrompt(),
       me: myMe(),
+      mood: moodBlock(currentMood()),
+      narration: true,
         affection: affection(),
         affectionBase: state.profile.affectionBase,
         relation: state.config.herRelation,
@@ -2981,8 +3137,13 @@ ${situation}
       });
     }
 
-    const { clean } = extractMemory(full);
-    let parts = splitMessages(clean, 2);
+    // 主动开口那一轮也要擦掉情绪块（不然她会把 [[情绪]] 说出来）
+    const memCut = extractMemory(full);
+    applyMemory(memCut.mem);
+    const moodCut = parseMoodBlock(memCut.clean);
+    if (moodCut.mood) applyMood(moodCut.mood);
+
+    let parts = splitMessages(moodCut.clean, 2);
     if (!parts.length) { hideTyping(); return false; }
 
     hideTyping();
@@ -3101,7 +3262,7 @@ function onSeg(sel, handler) {
   });
 }
 
-/** 聊天页底部：输入框、表情、发送、回到最新 */
+/** 聊天页底部：输入框、旁白框、表情、发送、回到最新 */
 function bindComposer() {
   const input = $('#input');
   input.addEventListener('input', () => { autoGrow(); syncSendBtn(); });
@@ -3116,10 +3277,22 @@ function bindComposer() {
   });
   $('#btnSend').addEventListener('click', send);
 
+  // 旁白框：和消息框共用一个发送键（见 syncSendBtn / send）
+  const narr = $('#narrInput');
+  if (narr) {
+    narr.addEventListener('input', syncSendBtn);
+    narr.addEventListener('focus', closePanels);
+    narr.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); send(); }
+    });
+  }
+
   $('#btnEmoji').addEventListener('click', () => {
     const open = $('#emojiPanel').hidden;
     closePanels();
     $('#emojiPanel').hidden = !open;
+    // 打开时按她此刻的情绪重排（顺手的表情递到最前面）
+    if (open) renderEmojiPanelForMood();
     if (open) input.blur();
   });
   $('#emojiGrid').addEventListener('click', (e) => {
@@ -3336,8 +3509,10 @@ function bindSettingsForm() {
   $('#btnTest').addEventListener('click', testConnection);
 
   // 服务商切换 → 自动带出接口地址和模型
-  $('#inpProvider').addEventListener('change', onProviderChange);
-  $('#inpModel').addEventListener('change', () => {
+  // ⚠️ 服务商 / 模型 / 接口地址这几个控件这一轮从设置页删掉了（见 LOCKED_MODEL），
+  //    但下面这些绑定和读写先留着（用的是可选链）—— 将来想放开只改这一处。
+  $('#inpProvider')?.addEventListener('change', onProviderChange);
+  $('#inpModel')?.addEventListener('change', () => {
     state.config.model = $('#inpModel').value;
     saveConfig();
     $('#testResult').hidden = true;
@@ -3350,7 +3525,8 @@ function bindSettingsForm() {
   });
 
   // 手机本地模型的下载 / 删除（事件委托，列表是动态渲染的）
-  $('#nativeModels').addEventListener('click', (e) => {
+  // 这一轮"模型"那一块从设置页删掉了（本地模型面板也一起），所以加可选链
+  $('#nativeModels')?.addEventListener('click', (e) => {
     const dl = e.target.closest('[data-nm-dl]');
     const del = e.target.closest('[data-nm-del]');
     if (dl) downloadNativeModel(dl.dataset.nmDl);

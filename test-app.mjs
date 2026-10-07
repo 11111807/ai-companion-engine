@@ -204,44 +204,28 @@ check('设置页默认不可见', !isVisible($('#screen-settings')));
 check('回到最新按钮默认不可见', !isVisible($('#btnScrollBottom')));
 check('Toast 默认不可见', !isVisible($('#toast')));
 
-// ---------------------------------------------------------------- 服务商
+// ---------------------------------------------------------------- 模型（这一轮精简了）
 
-console.log('\n[1.8] 服务商预置（让用户不用自己查接口地址）...');
+console.log('\n[1.8] 模型固定用 deepseek-flash（设置页只留 Key + 测试连接）...');
 $('#screen-settings').classList.add('show');
 
-const providerOptions = $$('#inpProvider option');
-check('服务商下拉有预置选项', providerOptions.length >= 5, `${providerOptions.length} 个`);
-check('预置里包含有免费额度的平台',
-  providerOptions.some((o) => /智谱|硅基流动/.test(o.textContent)),
-  providerOptions.map((o) => o.textContent).slice(0, 6).join(' / '));
+// 用户要求：去掉服务商 / 模型 / 接口地址这些选项，只用 deepseek-flash。
+// 所以这些控件**故意不在 HTML 里了** —— 下面几条断言反过来盯"它们真的没了"。
+check('设置页没有服务商下拉了', !$('#inpProvider'));
+check('设置页没有模型下拉了', !$('#inpModel'));
+check('设置页没有接口地址输入了', !$('#inpEndpoint'));
+check('设置页没有本地模型面板了', !$('#nativePanel'));
+check('只留了 API Key', !!$('#inpKey'));
+check('留了测试连接', !!$('#btnTest'));
+check('页面上写明了用哪个模型', /deepseek-flash/.test($('#screen-settings').textContent),
+  ($('#screen-settings').textContent.match(/deepseek-\S+/) || [''])[0]);
 
-// 切到智谱，应该自动带出它自己的地址和模型
-$('#inpProvider').value = 'zhipu';
-$('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('切换服务商自动替换接口地址',
-  /bigmodel\.cn/.test($('#inpEndpoint').value), $('#inpEndpoint').value);
-check('切换服务商自动替换模型名',
-  /glm/.test($('#inpModel').value), $('#inpModel').value);
-check('显示该服务商的说明', $('#providerHint').textContent.length > 5,
-  $('#providerHint').textContent.slice(0, 40));
-check('提供"去申请 Key"的链接',
-  !$('#signupLink').hidden && /bigmodel\.cn/.test($('#signupLink').href),
-  $('#signupLink').href);
-check('非自定义时接口地址设为只读（防误改）', $('#inpEndpoint').readOnly === true);
-check('服务商选择已持久化',
-  JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).provider === 'zhipu');
-
-// 切到自定义应该允许编辑
-$('#inpProvider').value = 'custom';
-$('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('自定义服务商可编辑接口地址', $('#inpEndpoint').readOnly === false);
-check('自定义服务商时隐藏申请链接', $('#signupLink').hidden === true);
-
-// 切回 DeepSeek 继续后面的测试
-$('#inpProvider').value = 'deepseek';
-$('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('切回 DeepSeek 地址正确',
-  /api\.deepseek\.com/.test($('#inpEndpoint').value), $('#inpEndpoint').value);
+// 就算配置里被人塞了别的模型名，跑起来也应该是 deepseek-flash
+check('config 里的模型是 deepseek-flash',
+  JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model === 'deepseek-flash'
+  || /^deepseek-/.test(JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model || ''),
+  JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
+check('提供"去申请 Key"的链接', !!$('#signupLink'));
 
 // ---------------------------------------------------------------- 配置
 
@@ -464,33 +448,26 @@ check('存在反顺从规则（针对智谱这类弱模型）',
   /别当应声虫/.test(sysSent) && /不要为了让他高兴就一味附和/.test(sysSent),
   (sysSent.match(/【别当应声虫】[^\n]*/) || [''])[0]);
 
-// 本地模型：不需要 API Key
-$('#screen-settings').classList.add('show');
-const localOpts = $$('#inpProvider option').filter((o) => /本地模型/.test(o.textContent));
-check('服务商里有本地模型选项', localOpts.length >= 2, localOpts.map((o) => o.textContent).join(' / '));
+// 本地模型：这一轮设置页不再提供这个选项（模型锁死 deepseek-flash）。
+// providers.js 里那些预置**还在**（将来想放开不用重写），只是界面上不给选了。
+console.log('\n[4.1] 本地模型选项已经收起来了（模型锁定 deepseek-flash）...');
+{
+  const { PROVIDERS } = await import('./src/providers.js');
+  const local = PROVIDERS.filter((p) => p.local);
+  check('providers.js 里还留着本地模型预置', local.length >= 2,
+    local.map((p) => p.id).join(' / '));
+  check('但设置页里选不了（界面没有服务商下拉）', !$('#inpProvider'));
 
-$('#inpProvider').value = 'local-ollama';
-$('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('本地模型自动填上本地地址', /127\.0\.0\.1|localhost/.test($('#inpEndpoint').value), $('#inpEndpoint').value);
-check('本地模型地址可编辑（要换成电脑的局域网 IP）', $('#inpEndpoint').readOnly === false);
-check('本地模型不要求填 Key', /不需要/.test($('#inpKey').placeholder), $('#inpKey').placeholder);
-check('本地模型的 Key 输入框被标注为不需要',
-  /不需要/.test($('#inpKey').closest('.wx-cell')?.querySelector('label')?.textContent || ''));
-
-// 本地服务商下不应该弹"还差一步"的配置引导
-$('#inpKey').value = '';
-$('#inpKey').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('选了本地模型就不算"未配置"', $('#setupBanner').hidden === true);
-
-// 切回云端后又要 key
-$('#inpProvider').value = 'deepseek';
-$('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-$('#inpKey').value = '';
-$('#inpKey').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('切回云端又需要填 Key', $('#setupBanner').hidden === false);
-$('#inpKey').value = 'sk-test-1234567890';
-$('#inpKey').dispatchEvent(new window.Event('change', { bubbles: true }));
-$('#screen-settings').classList.remove('show');
+  // 需要填 Key 这件事还在（云端模型仍然要 Key）
+  $('#screen-settings').classList.add('show');
+  $('#inpKey').value = '';
+  $('#inpKey').dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('没有 Key 时会提示去配置', $('#setupBanner').hidden === false);
+  $('#inpKey').value = 'sk-test-1234567890';
+  $('#inpKey').dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('填了 Key 就不提示了', $('#setupBanner').hidden === true);
+  $('#screen-settings').classList.remove('show');
+}
 
 // ---------------------------------------------------------------- 慢速流
 
@@ -844,18 +821,16 @@ check('长时间间隔会显示时间条', (() => {
 
 console.log('\n[11] DeepSeek API 版本（旧模型名下线） ...');
 
-check('默认模型名是新版的 deepseek-flash',
-  $('#inpModel').value === 'deepseek-flash' || /deepseek-flash/.test($('#inpModel').value),
-  $('#inpModel').value);
+// 模型名现在锁定在代码里（设置页没有下拉了），所以直接查配置和常量
+check('默认模型名是新版的 deepseek-flash', (() => {
+  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}');
+  return cfg.model === 'deepseek-flash';
+})(), JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
 
-check('服务商里不再出现已下线的 deepseek-chat / deepseek-reasoner', (() => {
-  $('#inpProvider').value = 'deepseek';
-  $('#inpProvider').dispatchEvent(new window.Event('change', { bubbles: true }));
-  const opts = $$('#selModel option, #inpModel option').map((o) => o.value);
-  const dl = $('#modelList')?.innerHTML || '';
-  const all = opts.join(',') + dl;
-  return !/deepseek-chat|deepseek-reasoner/.test(all);
-})());
+check('已下线的 deepseek-chat / deepseek-reasoner 不再被使用', (() => {
+  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}');
+  return !/deepseek-chat|deepseek-reasoner/.test(cfg.model || '');
+})(), JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
 
 // 老配置自动升级
 check('老配置里的 deepseek-chat 会自动升级', (() => {

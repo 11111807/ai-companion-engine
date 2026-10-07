@@ -158,6 +158,91 @@ body { background: var(--wx-bg); }
 .wx-item.add { background: #fafafa; color: var(--wx-green); }
 .wx-item.add .wx-item-name { color: var(--wx-green); }
 
+/* ---------------- 实时情绪条 ----------------
+ *
+ * 贴在聊天页顶栏下面。没有情绪时整条 hidden（不留空白占地方）。
+ * 用 flex-wrap 而不是横向滚动：手机上"开心10% 心动15% 难过5%"三个刚好一行，
+ * 超过就换行 —— 横向滚动在聊天页里很容易误触。
+ */
+.wx-mood {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 6px;
+  background: var(--wx-nav);
+  border-bottom: 1px solid var(--wx-nav-border);
+  font-size: 11.5px;
+  line-height: 1.5;
+  position: relative;
+  z-index: 5;
+}
+.wx-mood-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid var(--wx-line);
+  color: #555;
+  white-space: nowrap;
+}
+.wx-mood-chip b { font-weight: 600; }
+/* 用情绪自己的颜色描一下边，一眼能分清是哪种 */
+.wx-mood-chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .85;
+}
+
+/* ---------------- 旁白输入行 ----------------
+ *
+ * 为什么单独一行而不是塞进消息框：它和"我说的话"是两种东西，
+ * 混在一起模型会分不清哪句是台词、哪句是场景说明。
+ * 高度压到 30px 左右，不挡聊天区。
+ */
+.wx-narr-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 6px;
+}
+.wx-narr-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--wx-text-time);
+  letter-spacing: -1px;
+}
+.wx-narr-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--wx-line);
+  border-radius: 15px;
+  background: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--wx-text);
+  outline: none;
+}
+.wx-narr-row input::placeholder { color: #bbb; }
+.wx-narr-row input:focus { border-color: var(--wx-green); }
+
+/* 旁白气泡：跟普通消息区分开（灰底、居中、斜体），一眼看出不是"她说的话" */
+.wx-bubble.narr {
+  background: transparent;
+  border: 1px dashed #d8d8d8;
+  color: #8a8a8a;
+  font-style: italic;
+  font-size: 13px;
+  text-align: center;
+}
+
 /* 列表行里的头像。
    不复用 .wx-avatar.her —— 那个类是"聊天页里她的头像"，
    测试要靠它验证"换头像后聊天区跟着变"，复用会让选择器抓到列表里的。 */

@@ -189,6 +189,10 @@
     </button>
   </header>
 
+  <!-- 实时情绪监控：名字下面一条，显示"开心 10%　心动 15%"这种。
+       没有情绪时整条收起来（不留一条空白占地方）。 -->
+  <div class="wx-mood" id="moodStrip" hidden></div>
+
   <!-- 消息区 -->
   <div class="wx-messages" id="messages"></div>
 
@@ -209,6 +213,14 @@
 
   <!-- 底部输入栏 -->
   <footer class="wx-toolbar">
+    <!-- 旁白：环境 / 动作 / 内心想法。故意做得矮一点，免得挡聊天区。
+         和下面的消息框**共用一个发送键**：旁白框里有字就发旁白，否则发消息。 -->
+    <div class="wx-narr-row">
+      <span class="wx-narr-icon" aria-hidden="true">（　）</span>
+      <input id="narrInput" type="text" maxlength="120" enterkeyhint="send"
+             placeholder="旁白：环境 / 动作 / 内心想法…（可留空）" autocomplete="off" />
+    </div>
+
     <div class="wx-toolbar-row">
       <button class="wx-tool-btn" id="btnEmoji" aria-label="表情">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -626,51 +638,24 @@
 
     <div class="wx-group-title">模型</div>
     <div class="wx-group">
-      <div class="wx-cell">
-        <label for="inpProvider">用哪家的模型</label>
-        <select id="inpProvider"></select>
-      </div>
-      <div class="wx-provider-hint" id="providerHint"></div>
-
-      <!-- 手机本地模型管理（只在 APK 里显示） -->
-      <div class="wx-native-panel" id="nativePanel" hidden>
-        <div class="wx-native-status" id="nativeStatus">—</div>
-        <div class="wx-native-list" id="nativeModels"></div>
-        <div class="wx-native-progress" id="nativeProgress" hidden>
-          <div class="wx-native-bar"><i id="nativeBar"></i></div>
-          <div class="wx-native-progress-text" id="nativeProgressText">准备下载…</div>
-        </div>
-        <button class="wx-btn-text" id="btnScanModels" style="margin-top:12px">📂 扫描手机里已有的模型</button>
-        <button class="wx-btn-primary" id="btnSpeedTest" style="margin-top:12px">⚡ 测速（看每秒能生成多少字）</button>
-        <pre class="wx-native-log" id="speedLog" hidden></pre>
-        <button class="wx-btn-text" id="btnSelfTest" style="margin-top:12px">🔍 运行自检（排查问题用）</button>
-        <pre class="wx-native-log" id="selfTestLog" hidden></pre>
-      </div>
-
+      <!-- 模型固定用 DeepSeek 的 deepseek-flash：
+           陪聊要的是快和便宜，切换服务商/模型对"她像不像真人"没有帮助，
+           反而多一个能调坏的地方（比如换成思考模型，回复又慢又贵）。
+           所以这里只留一个 Key 和测试连接。见 src/app.js 的 LOCKED_MODEL。 -->
       <div class="wx-cell">
         <label for="inpKey">API Key</label>
         <input id="inpKey" type="password" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" />
         <a class="wx-signup-link" id="signupLink" href="#" target="_blank" rel="noopener">还没有 Key？点这里去申请 →</a>
       </div>
 
-      <div class="wx-cell">
-        <label for="inpModel">模型</label>
-        <select id="inpModel"></select>
-      </div>
-
-      <details class="wx-advanced">
-        <summary>高级（一般不用改）</summary>
-        <div class="wx-cell">
-          <label for="inpEndpoint">接口地址</label>
-          <input id="inpEndpoint" type="url" autocapitalize="off" spellcheck="false" />
-        </div>
-      </details>
-
       <div class="wx-cell-cell">
         <button class="wx-btn-primary" id="btnTest">测试连接</button>
       </div>
       <div class="wx-test-result" id="testResult" hidden></div>
-      <div class="wx-cell-note">Key 只存在这台手机上，直接发给模型服务商，不经过任何第三方服务器。</div>
+      <div class="wx-cell-note">
+        用的是 <b id="lockedModelName">deepseek-flash</b>（固定）。<br />
+        Key 只存在这台手机上，直接发给模型服务商，不经过任何第三方服务器。
+      </div>
     </div>
 
     <div class="wx-group-title">你是</div>
