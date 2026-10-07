@@ -228,8 +228,13 @@ console.log('\n[9] 旁白真的能发出去，而且和消息分开 ...');
   check('⭐ 旁白存成了单独一条（带 narr 标记）', last.narr === true, JSON.stringify(last).slice(0, 60));
   check('旁白内容对', last.content === '窗外开始下雨了');
   check('旁白框发完就清空', $('#narrInput').value === '');
-  check('⭐ 界面上旁白不带气泡底色（有 narr 类）',
+  check('⭐ 界面上旁白是一种单独的气泡（有 narr 类）',
     !!$('#messages .wx-bubble.narr'), $('#messages').innerHTML.slice(-120));
+  // 用户明确要求：**她的旁白在左、我的在右**（不带 AI 括号）
+  check('⭐ 我的旁白靠右（.narr.out）', !!$('#messages .wx-row.narr.out'));
+  check('旁白是"我写的"那一侧，不是她说的',
+    $('#messages .wx-row.narr.out .wx-bubble.narr')?.textContent === '窗外开始下雨了',
+    $('#messages .wx-row.narr')?.textContent);
 
   // ② 进模型的上下文时要包起来
   const req = app.lastRequest();
@@ -252,6 +257,29 @@ console.log('\n[9] 旁白真的能发出去，而且和消息分开 ...');
   check('⭐ 只填消息时发的是消息（旁白空着不算）', mine.at(-1)?.content === '今天好累',
     `${mine.at(-1)?.content} ｜ 全部：${saved2.map((m) => (m.narr ? `旁白:${m.content}` : m.content)).join(' / ')}`);
   check('旁白那条还在（没被顶掉）', saved2.some((m) => m.narr), String(saved2.length));
+
+  // ④ **两个都填 → 一起发**（用户要求："我还需要有旁白和对话一起发送"）
+  for (let i = 0; i < 100 && ($('#input').disabled || $('#btnSend').hidden); i++) await app.sleep(50);
+  const before4 = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
+  type($('#narrInput'), '她把奶茶推到你面前');
+  type($('#input'), '这杯给你');
+  $('#btnSend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  await app.sleep(150);
+
+  const saved4 = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+  const added = saved4.slice(before4);
+  check('⭐ 两个框都填 → 一次发出两条（先旁白后消息）', added.length >= 2,
+    added.map((m) => (m.narr ? `旁白:${m.content}` : m.content)).join(' / '));
+  check('第一条是旁白', added[0]?.narr === true && added[0].content === '她把奶茶推到你面前',
+    JSON.stringify(added[0] || {}).slice(0, 60));
+  check('第二条是消息', added[1]?.narr !== true && added[1].content === '这杯给你',
+    JSON.stringify(added[1] || {}).slice(0, 60));
+  check('两个输入框都清空了', $('#narrInput').value === '' && $('#input').value === '');
+  check('⭐ 进上下文时旁白在前、台词在后（读起来是"（动作）台词"）', (() => {
+    const ctx = app.lastRequest().messages.filter((m) => m.role === 'user');
+    const i = ctx.findIndex((m) => m.content === '（她把奶茶推到你面前）');
+    return i >= 0 && ctx[i + 1]?.content === '这杯给你';
+  })());
 }
 
 // ---------------------------------------------------------------- 10) 情绪联动

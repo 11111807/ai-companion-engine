@@ -80,6 +80,8 @@ export function createFriendUI(deps) {
     loadPersona(target);
     savePersonaIndex();
 
+    // 换人了 → 增量渲染的记账作废（不然她会把小安的新消息画成小雨的记录）
+    deps.resetChatRender?.();
     renderHerIdentity();
     renderAffection();
     renderClock();
@@ -371,7 +373,8 @@ export function createFriendUI(deps) {
     $('#btnCloseAddFriend')?.addEventListener('click', closeAddFriend);
     $('#btnAddBlank')?.addEventListener('click', () => createPersona(''));
     $('#btnBack')?.addEventListener('click', closeChat);   // 聊天页左上角：回消息列表
-    $('#btnMsgsMore')?.addEventListener('click', openMenu);
+    // ⚠️ 消息页右上角那个 ··· 已经去掉了（点进聊天框右上角本来就有，
+    //    功能完全一样，摆在那儿只是重复）。这里不再绑 #btnMsgsMore。
 
     $('#btnCloseMe')?.addEventListener('click', () => { closeMe(); renderMe(); });
     $('#btnMeSave')?.addEventListener('click', () => { applyMeForm(); closeMe(); });

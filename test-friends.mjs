@@ -13,6 +13,13 @@
  */
 
 import { bootApp, msg } from './boot.mjs';
+
+/** 打开「这个好友的设置」页（聊天页 ··· → 设置）。这一轮新加的小工具。 */
+function openFriendSettingsVia(app) {
+  app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  app.$('#actionSheet').querySelector('[data-act="settings"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+}
 import {
   keysFor, DEFAULT_ID, PERSONAS_KEY, normalizeNav, orderedList, byRecency,
   addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread, makeId,
@@ -290,7 +297,9 @@ console.log('\n[7] 在好友之间切换：记忆互不干涉，时间共用 ...
   check('关系也是各人各的', $('#affRelationName').textContent === '同事', $('#affRelationName').textContent);
   tap('#btnPlus');
 
-  tap('#btnOpenMemory');
+  tap('#btnMore');
+  tap('#actionSheet [data-act="settings"]');
+  tap('#btnOpenMemory2');
   check('⭐ 记忆页只显示这个好友的记忆',
     /林砚才知道的事/.test($('#screen-memory').textContent)
     && !/小雨才知道的事/.test($('#screen-memory').textContent));
@@ -370,7 +379,8 @@ console.log('\n[9] 老数据自动迁移成"小雨"这个好友（这条最要�
   check('⭐ 关系还在（恋人）', $('#affRelationName').textContent === '恋人', $('#affRelationName').textContent);
   $('#btnPlus').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
-  $('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  $('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('⭐ 记忆还在（豆豆）', /豆豆/.test($('#screen-memory').textContent));
   check('人设还在（年龄 20）',
     JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).herAge === 20);

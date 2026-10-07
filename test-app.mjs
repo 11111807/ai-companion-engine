@@ -239,7 +239,20 @@ check('错误 key 有友好提示', !!bad, $('#testResult').textContent.trim());
 
 mockMode = 'ok';
 $('#inpKey').value = 'sk-test-key';
-$('#inpUserName').value = '阿哲';
+// 「你的名字」这个输入框这一轮搬到了「我 → 改我的资料」页（#meName），
+// 设置页里不再有它 —— 所以走真实路径：从聊天页返回 → 我 → 改我的资料 → 保存。
+$('#btnCloseSettings').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$('#btnBack').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$$('.wx-tab').find((b) => b.dataset.tab === 'me')
+  .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$('#meCard [data-me="edit"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$('#meName').value = '阿哲';
+$('#btnMeSave').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+check('我的资料页能存名字', JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).userName === '阿哲');
+
+// 回到设置页测连接
+$('#screen-settings').classList.add('show');
+$('#inpKey').value = 'sk-test-key';
 $('#btnTest').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const good = await waitFor(() => !$('#testResult').hidden && /成功/.test($('#testResult').textContent), 5000);
 check('正确 key 测试通过', !!good, $('#testResult').textContent.trim());
@@ -532,32 +545,37 @@ check('菜单能打开', isVisible($('#mask')));
 $('#actionSheet').querySelector('[data-act="settings"]')
   .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 check('从菜单进设置后菜单自动关闭', !isVisible($('#mask')));
-check('设置页正常打开', $('#screen-settings').classList.contains('show'));
+// ⚠️ 聊天页 ··· 里的「设置」现在是**这个好友的设置**（用户要求：和全局设置分开）。
+//    全局那个（只有模型 / Key）从「我」那一页进。
+check('聊天页的「设置」开的是这个好友的设置',
+  $('#screen-friend').classList.contains('show') && !$('#screen-settings').classList.contains('show'));
 
 // 设置页里不能有任何会挡住点击的弹层盖在上面
 // 判据三条：真的可见、定位在设置页之上、并且会拦截点击（pointer-events 不是 none）。
 // 像 toast 那种瞬态提示是 pointer-events:none，不挡点击，不该算遮挡。
 const blockers = [...doc.querySelectorAll('body *')].filter((el) => {
   if (!isVisible(el)) return false;
-  if (el.id === 'screen-settings' || el.closest('#screen-settings')) return false;
+  if (el.closest('#screen-friend') || el.closest('#screen-settings')) return false;
   const cs = window.getComputedStyle(el);
   const pos = cs.position;
   if (pos !== 'fixed' && pos !== 'absolute') return false;
   if (cs.pointerEvents === 'none') return false;
   return (parseInt(cs.zIndex, 10) || 0) >= 10;
 });
-check('设置页上方没有会挡点击的弹层', blockers.length === 0,
+check('这个好友的设置页上方没有会挡点击的弹层', blockers.length === 0,
   blockers.length ? `被 ${blockers.map((e) => '#' + e.id || e.className).join(', ')} 挡住` : '无遮挡');
 
 // 打开设置时，表情/更多面板也必须收起来
-$('#screen-settings').classList.remove('show');
+$('#screen-friend').classList.remove('show');
+$('#screen-friend').hidden = true;
 $('#btnEmoji').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 check('表情面板能打开', isVisible($('#emojiPanel')));
 $('#btnMore').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 $('#actionSheet').querySelector('[data-act="settings"]')
   .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 check('进设置时表情面板也收起了', !isVisible($('#emojiPanel')));
-$('#screen-settings').classList.remove('show');
+$('#screen-friend').classList.remove('show');
+$('#screen-friend').hidden = true;
 
 // ---------------------------------------------------------------- 她记得的事
 
@@ -706,7 +724,11 @@ console.log('\n[9.88] 带 hidden 的元素必须真的看不见（属性会被 d
 // 用户反馈：设置里点「她的人设 → 重新设定」像没反应，得先按返回才看得到。
 // 真因：#screen-settings 在 HTML 里排在最后，而所有覆盖层都是 z-index:3 ——
 // 光靠 DOM 顺序，设置页会永远压在最上面。人设页其实打开了，只是被盖住。
-console.log('\n[9.89] 从设置页里打开的那几页，必须盖在设置页上面 ...');
+//
+// ⚠️ 这一轮结构又变了（用户要求）：人设页的入口从「全局设置」搬到了
+//   **「这个好友的设置」**（聊天页 ··· → 设置 → 她的样子 → 重新设定）。
+//   所以下面按新路径走一遍，同时两层覆盖页都要能正常叠起来。
+console.log('\n[9.89] 从设置里打开的那几页，必须盖在设置页上面 ...');
 {
   const z = (sel) => Number(window.getComputedStyle($(sel)).zIndex) || 0;
   check('人设页的层级高于设置页', z('#screen-persona') > z('#screen-settings'),
@@ -715,19 +737,22 @@ console.log('\n[9.89] 从设置页里打开的那几页，必须盖在设置页�
     z('#screen-memory') > z('#screen-settings'),
     `memory=${z('#screen-memory')} settings=${z('#screen-settings')}`);
 
-  // 按用户的路径真走一遍
-  $('#screen-settings').classList.add('show');
-  $('#btnOpenPersona').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  // 按用户的路径真走一遍：聊天页 ··· → 设置 → 她的样子 → 重新设定
+  openMenuViaButton();
+  $('#actionSheet').querySelector('[data-act="settings"]')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  check('聊天页的「设置」开的是**这个好友的设置**（不是全局）',
+    $('#screen-friend').classList.contains('show') && !$('#screen-settings').classList.contains('show'));
+
+  $('#btnOpenPersonaFromFriend').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   check('点「重新设定」人设页真的打开了并可见',
     $('#screen-persona').classList.contains('show') &&
     window.getComputedStyle($('#screen-persona')).visibility === 'visible');
-  check('它盖在还开着的设置页上面（不用先按返回）',
-    z('#screen-persona') > z('#screen-settings') &&
-    $('#screen-settings').classList.contains('show'));
+
   $('#btnClosePersona').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  check('关掉人设页后回到设置页（设置页没被关掉）',
-    $('#screen-settings').classList.contains('show'));
-  $('#screen-settings').classList.remove('show');
+  check('关掉人设页后能回到好友设置页', $('#screen-friend').classList.contains('show'));
+  $('#screen-friend').classList.remove('show');
+  $('#screen-friend').hidden = true;
 }
 
 // ---------------------------------------------------------------- 导入聊天记录
@@ -804,11 +829,16 @@ check('聊天记录已持久化', savedMsgs.length > 5, `${savedMsgs.length} 条
 check('消息带时间戳', savedMsgs.every((m) => typeof m.ts === 'number'));
 check('记录里有我发的消息', savedMsgs.some((m) => m.role === 'user' && /刚下班/.test(m.content)));
 
-$('#screen-settings').classList.add('show');
-$$('#segBurst button')[2].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-check('连发条数可调', $$('#segBurst button')[2].classList.contains('on'));
+// 「她怎么回」那五组单选这一轮搬到了**这个好友的设置**页，所以开它。
+// 这正是用户要的："每个好友单独设置，从聊天框右上角的下拉菜单进"。
+openMenuViaButton();
+$('#actionSheet').querySelector('[data-act="settings"]')
+  .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+check('好友设置页开着（五组单选在这儿）', $('#screen-friend').classList.contains('show'));
+$$('#segBurst2 button')[2].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+check('连发条数可调', $$('#segBurst2 button')[2].classList.contains('on'));
 check('设置已保存', JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).burst === 3);
-$$('#segLen button')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$$('#segLen2 button')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 check('回复长度可调', JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).maxTokens === 120);
 
 // 时间分隔
@@ -841,15 +871,15 @@ check('老配置里的 deepseek-chat 会自动升级', (() => {
 })());
 
 check('深度思考开关存在且默认是关', (() => {
-  const on = $$('#segThink button').find((b) => b.classList.contains('on'));
+  const on = $$('#segThink2 button').find((b) => b.classList.contains('on'));
   return !!on && on.dataset.v === '0';
-})(), $$('#segThink button').find((b) => b.classList.contains('on'))?.textContent);
+})(), $$('#segThink2 button').find((b) => b.classList.contains('on'))?.textContent);
 
 check('深度思考可以打开并保存', (() => {
-  $$('#segThink button')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  $$('#segThink2 button')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}');
   const ok = Number(cfg.thinking) === 1;
-  $$('#segThink button')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  $$('#segThink2 button')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   return ok;
 })());
 
@@ -899,6 +929,15 @@ check('重命名为「小雨」后能恢复默认', (() => {
   return $('#navName').textContent === '小雨';
 })());
 
+// ⚠️ 「她的样子」这一组（名字 / 头像）这一轮搬到了**这个好友的设置**页。
+//    头像面板也在那一页里面，所以要先把它打开 —— 不然父页不可见，
+//    面板的 computed display 还是 none（HTML 里带 hidden）。
+openMenuViaButton();
+$('#actionSheet').querySelector('[data-act="settings"]')
+  .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+check('好友设置页打开（她的样子在这一页）',
+  $('#screen-friend').classList.contains('show'));
+
 check('点开头像面板能看到 emoji 可选', (() => {
   $('[data-pick-avatar="her"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   return !$('#avatarPanel').hidden && $$('#avatarEmojiList button').length >= 10;
@@ -908,46 +947,51 @@ check('面板标题标明在给谁换', /她/.test($('#avatarPanelTitle').textCo
 
 check('换 emoji 头像会立刻生效', (() => {
   $$('#avatarEmojiList button')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  return $('.wx-avatar.her')?.textContent === $$('#avatarEmojiList button')[1].dataset.emoji;
-})(), $('.wx-avatar.her')?.textContent);
+  // 预览在好友设置页里（#herAvatarPreview）
+  return $('#herAvatarPreview')?.textContent === $$('#avatarEmojiList button')[1].dataset.emoji;
+})(), $('#herAvatarPreview')?.textContent);
 
 check('换头像后聊天区气泡头像也跟着变', (() => {
-  const hers = $$('.wx-avatar.her').map((e) => e.textContent);
+  // ⚠️ 只看聊天区里的（#messages）—— 列表行用的是 .wx-avatar.item，不是 .her
+  const hers = $$('#messages .wx-avatar.her').map((e) => e.textContent);
   const emoji = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).herEmoji;
   return hers.length > 0 && hers.every((t) => t === emoji);
 })());
 
 check('可以恢复默认头像', (() => {
   $('#btnResetAvatar').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  return $('.wx-avatar.her')?.textContent === '🌧️';
-})(), $('.wx-avatar.her')?.textContent);
+  return $('#herAvatarPreview')?.textContent === '🌧️';
+})(), $('#herAvatarPreview')?.textContent);
 
 // ---------------------------------------------------------------- 「我」的头像
 
 console.log('\n[13] 我的头像 ...');
 
-check('设置里有「你的头像」入口', !!$('#myAvatarPreview') && !!$('[data-pick-avatar="me"]'));
+// ⚠️ 「你的头像」这一轮搬到了「我 → 改我的资料」页（#meAvatarPreview，整行可点）。
+//    原来的 #myAvatarPreview / [data-pick-avatar="me"] 都不在了。
+check('「我」那页有改头像的入口', !!$('#meAvatarPreview') && !!$('#btnPickMeAvatar'));
 
 check('默认显示名字首字', (() => {
-  const inp = $('#inpUserName');
+  // 用户名也在这一页（#meName）
+  const inp = $('#meName');
   inp.value = '阿哲';
   inp.dispatchEvent(new window.Event('input', { bubbles: true }));
-  return $('#myAvatarPreview').textContent === '阿';
-})(), $('#myAvatarPreview').textContent);
+  return $('#meAvatarPreview').textContent === '阿';
+})(), $('#meAvatarPreview').textContent);
 
 check('点「你的头像」更换 → 面板切到「你」', (() => {
-  $('[data-pick-avatar="me"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  $('#btnPickMeAvatar').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   return !$('#avatarPanel').hidden && /你/.test($('#avatarPanelTitle').textContent);
 })(), $('#avatarPanelTitle').textContent);
 
 check('给你换 emoji 头像会立刻生效', (() => {
   const btn = $$('#avatarEmojiList button')[3];
   btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  return $('#myAvatarPreview').textContent === btn.dataset.emoji;
-})(), $('#myAvatarPreview').textContent);
+  return $('#meAvatarPreview').textContent === btn.dataset.emoji;
+})(), $('#meAvatarPreview').textContent);
 
 check('聊天区里我的气泡头像也跟着变', (() => {
-  const mine = $$('.wx-avatar.me').map((e) => e.textContent);
+  const mine = $$('#messages .wx-avatar.me').map((e) => e.textContent);
   const emoji = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).myEmoji;
   return mine.length > 0 && mine.every((t) => t === emoji);
 })());
@@ -970,16 +1014,16 @@ check('我的头像选完面板里「你」的 emoji 列表跟她的不一样', 
 })());
 
 check('我的头像可以恢复默认（回到首字）', (() => {
-  $('[data-pick-avatar="me"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  $('#btnPickMeAvatar').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   $('#btnResetAvatar').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  return $('#myAvatarPreview').textContent === '阿';
-})(), $('#myAvatarPreview').textContent);
+  return $('#meAvatarPreview').textContent === '阿';
+})(), $('#meAvatarPreview').textContent);
 
 // ---------------------------------------------------------------- 记忆的手动增删
 
 console.log('\n[14] 手动管理她的记忆 ...');
 
-$('#btnOpenMemory').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+$('#btnOpenMemory2').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 
 check('记忆页能打开', $('#screen-memory').classList.contains('show'));
 

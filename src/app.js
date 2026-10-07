@@ -297,6 +297,7 @@ function initFriendUI() {
     addPersona, setActive, patchPersona, clearUnread,
     readJSON, saveConfig, saveProfile, saveChat, savePersonaIndex,
     fixProfileShape, fixConfigShape, loadPersona, now,
+    resetChatRender,
     renderHerIdentity, renderAffection, renderClock, renderChat,
     openPersona, openSettings, openMenu, toast,
     nearestAffPreset, defaultAffectionFor,
@@ -304,13 +305,7 @@ function initFriendUI() {
     readMe, applyMe, meSummary,
     herName, herEmoji, parseBirthday,
     setSegOn, segOn, renderAvatarPreview, onSeg,
-    pickAvatarForMe: () => {
-      avatarTarget = 'me';
-      renderChips('#avatarEmojiList', MY_EMOJIS, (v) => v === myEmoji());
-      $('#avatarPanelTitle').textContent = '给你自己选一个头像';
-      $('#avatarPanel').hidden = false;
-      requestAnimationFrame(() => $('#avatarPanel').classList.add('show'));
-    },
+    pickAvatarForMe: () => openAvatarPanel('me'),
   });
 }
 
@@ -324,6 +319,29 @@ const renderMsgList = () => friendUI.renderMsgList();
 const renderMe = () => friendUI.renderMe();
 const refreshUnreadDot = () => friendUI.refreshUnreadDot();
 const bindHome = () => friendUI.bindHome();
+
+/**
+ * 打开头像选择面板（「她」和「我」共用）。
+ *
+ * ⚠️ 必须用 renderAvatarPanel()（它生成的按钮带 `data-emoji`），
+ *    不能用 renderChips()（那个带的是 `data-chip`）—— 用错了点上去没反应。
+ *    踩过：friend-ui 那边原来图省事用了 renderChips，头像点不动。
+ */
+function openAvatarPanel(who) {
+  avatarTarget = who === 'me' ? 'me' : 'her';
+  const p = $('#avatarPanel');
+  if (!p) return;
+  p.hidden = false;
+  renderAvatarPanel();
+  requestAnimationFrame(() => p.classList.add('show'));
+}
+
+function closeAvatarPanel() {
+  const p = $('#avatarPanel');
+  if (!p) return;
+  p.classList.remove('show');
+  p.hidden = true;
+}
 
 // ---------------------------------------------------------------- 存储
 //
@@ -812,11 +830,14 @@ function messageHTML(msg, prev, idx) {
   // 搜索命中后要"跳到那一条"，没有这个就只能靠数 DOM 节点——
   // 中间还夹着时间分隔条，数不准。
   const at = Number.isInteger(idx) ? ` data-i="${idx}"` : '';
-  // 旁白：不要头像、不要气泡底色 —— 它是"场景说明"，不是谁说的话
+
+  // 旁白单独一种气泡：**不要头像、不要气泡底色**，靠左右分边表示是谁写的。
+  // 她的旁白在左边、我的在右边 —— 和对话的气泡方向一致，
+  // 一眼能看出"这句场景说明是谁加的"。
   if (nar) {
     return `${maybeTimeDivider(msg.ts, prev?.ts)}
-    <div class="wx-row narr"${at}>
-      <div class="wx-bubble narr">（${esc(msg.content)}）</div>
+    <div class="wx-row narr ${out ? 'out' : 'in'}"${at}>
+      <div class="wx-bubble narr">${esc(msg.content)}</div>
     </div>`;
   }
   return `${maybeTimeDivider(msg.ts, prev?.ts)}
@@ -826,18 +847,59 @@ function messageHTML(msg, prev, idx) {
     </div>`;
 }
 
+// renderChat 的增量渲染状态。
+//
+// 为什么要它（用户反馈"从消息页点进聊天框有延迟"）：
+// 以前每次 renderChat 都把**全部**消息重新拼成 HTML 再 innerHTML 一次。
+// 聊到几百条时，光是浏览器解析这几百个气泡就要几十毫秒，
+// 而且点进聊天框、切好友、存盘后重画都会各来一遍。
+//
+// 现在记下"上一次画了几条、前缀是否还一致"：
+//   - 只是多了一条（发消息 / 收到回复）→ 只 append 那一条
+//   - 前缀变了（清空、导入、删记录、换好友）→ 老实全画
+let _drawn = 0;      // 已经画进 DOM 的消息条数
+let _sigs = [];      // 每条画进去时的签名（用来判断前缀有没有被改过）
+
+const msgSig = (m) => `${m.role}|${m.narr ? 'n' : ''}|${m.ts}|${m.content}`;
+
 function renderChat() {
   const box = $('#messages');
-  let html = '';
-  let prev = null;
-  for (let i = 0; i < state.messages.length; i++) {
-    const m = state.messages[i];
-    html += messageHTML(m, prev, i);
-    prev = m;
+  if (!box) return;
+
+  const msgs = state.messages;
+  const canAppend = _drawn > 0 && _drawn <= msgs.length
+    && _sigs.length >= _drawn
+    && msgs.slice(0, _drawn).every((m, i) => msgSig(m) === _sigs[i]);
+
+  if (canAppend) {
+    // 只画新增的那几条（绝大多数情况就 1 条）
+    const piece = document.createElement('div');
+    let html = '';
+    for (let i = _drawn; i < msgs.length; i++) {
+      html += messageHTML(msgs[i], msgs[i - 1] || null, i);
+    }
+    piece.innerHTML = html;
+    for (const n of [...piece.children]) box.appendChild(n);
+  } else {
+    let html = '';
+    let prev = null;
+    for (let i = 0; i < msgs.length; i++) {
+      html += messageHTML(msgs[i], prev, i);
+      prev = msgs[i];
+    }
+    box.innerHTML = html;
+    _sigs = msgs.map(msgSig);
   }
-  box.innerHTML = html;
+  _drawn = msgs.length;
+
   scrollToLatest(true);
   renderMoodStrip();
+}
+
+/** 从零重画（清空、导入、换好友时用）—— 顺便把增量状态清掉，免得前缀判断出错 */
+function resetChatRender() {
+  _drawn = 0;
+  _sigs = [];
 }
 
 function appendRow(msg) {
@@ -848,6 +910,11 @@ function appendRow(msg) {
   wrap.innerHTML = messageHTML(msg, prev, idx);
   const nodes = [...wrap.children];
   for (const n of nodes) box.appendChild(n);
+  // 记账：这条已经画上屏了。不记的话下次 renderChat 会重复画一遍。
+  if (idx >= 0) {
+    _drawn = Math.max(_drawn, idx + 1);
+    _sigs[idx] = msgSig(msg);
+  }
   return nodes.at(-1);
 }
 
@@ -968,11 +1035,12 @@ async function send() {
   const narrText = narr ? narr.value.trim() : '';
   const text = input.value.trim();
 
-  // 共用发送键：**旁白框里有字就发旁白**，否则发消息。
-  // 两条都空就什么都不做（也不报错，微信里点空发送本来就没反应）。
-  const asNarration = !!narrText;
-  const payload = asNarration ? narrText : text;
-  if (!payload || state.generating) return;
+  // 共用发送键，三件事都能干：
+  //   只填旁白 → 发一条旁白
+  //   只填消息 → 发一条消息
+  //   **两个都填 → 先发旁白再发消息**（一个发送键把"她推门进来"和台词一起发出去）
+  // 都空就什么都不做（微信里点空发送本来也没反应）。
+  if ((!narrText && !text) || state.generating) return;
 
   if (!hasKey()) {
     toast('先填一个 API Key');
@@ -981,27 +1049,22 @@ async function send() {
   }
 
   closePanels();
-  if (asNarration) {
-    narr.value = '';
-  } else {
-    input.value = '';
-    autoGrow();
-  }
+  narr.value = '';
+  input.value = '';
+  autoGrow();
   syncSendBtn();
   buzz();
 
   // 他出现了，重置"主动开口"的次数
   state.idleSpoken = 0;
 
-  const userMsg = asNarration
-    ? { role: 'user', content: payload, ts: now(), narr: true }
-    : { role: 'user', content: payload, ts: now() };
-  state.messages.push(userMsg);
-  appendRow(userMsg);
-  scrollToLatest(true);
-  saveChat();
+  const t = now();
+  // 旁白在前、消息在后：读起来就是"（动作）台词"，
+  // 而且让模型看到的是同一个顺序。
+  if (narrText) pushUserMessage({ role: 'user', content: narrText, ts: t, narr: true });
+  if (text) pushUserMessage({ role: 'user', content: text, ts: t + (narrText ? 1 : 0) });
 
-  if (!asNarration) {
+  if (text) {
     // 好感度跟着他这句话的冷暖动一点点（见 affection.js 的 drift）
     bumpAffection(text);
 
@@ -1014,6 +1077,14 @@ async function send() {
   }
 
   await respond();
+}
+
+/** 发出一条（我自己的）消息：落盘 + 上屏 + 滚到底 */
+function pushUserMessage(msg) {
+  state.messages.push(msg);
+  appendRow(msg);        // 它自己会更新增量渲染的记账
+  scrollToLatest(true);
+  saveChat();
 }
 
 // ---------------------------------------------------------------- 关系变了？
@@ -1437,7 +1508,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function updateDataInfo() {
   const n = state.messages.length;
   const facts = state.profile.facts?.length || 0;
-  $('#dataInfo').textContent = `${n} 条消息 · 她记得 ${facts} 件事`;
+  $('#dataInfo2').textContent = `${n} 条消息 · 她记得 ${facts} 件事`;
 }
 
 /** 用服务商预置填充表单 */
@@ -1460,27 +1531,37 @@ function applyProvider(id) {
   // 说明与申请入口
   if ($('#providerHint')) $('#providerHint').textContent = p.hint || '';
   const link = $('#signupLink');
-  if (p.signup) {
-    link.href = p.signup;
-    link.hidden = false;
-  } else {
-    link.hidden = true;
+  if (link) {
+    if (p.signup) {
+      link.href = p.signup;
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+    }
   }
   // 非自定义时地址由预置决定，不让误改；本地模型除外——手机必须把
   // 127.0.0.1 换成电脑的局域网 IP，所以本地服务商允许编辑地址。
+  //
+  // ⚠️ 接口地址输入框已经不在界面上了（模型锁 deepseek-flash），
+  //    所以这里**不能 return** —— 一 return 后面的"本地模型不需要 Key"
+  //    和 toggleNativePanel() 就全被跳过了。
+  //    （踩过：设置页一打开，五组单选的选中态全都不对，就是这里提前返回导致的。）
   const lockEndpoint = p.id !== 'custom' && !p.local;
-  if (!$('#inpEndpoint')) return;
-  $('#inpEndpoint').readOnly = lockEndpoint;
-  $('#inpEndpoint').classList.toggle('locked', lockEndpoint);
+  if ($('#inpEndpoint')) {
+    $('#inpEndpoint').readOnly = lockEndpoint;
+    $('#inpEndpoint').classList.toggle('locked', lockEndpoint);
+  }
 
   // 本地模型不需要 API Key
-  const keyLabel = $('#inpKey').closest('.wx-cell')?.querySelector('label');
-  if (p.noKey) {
-    $('#inpKey').placeholder = '本地模型不需要，留空即可';
-    if (keyLabel) keyLabel.textContent = 'API Key（本地不需要）';
-  } else {
-    $('#inpKey').placeholder = 'sk-...';
-    if (keyLabel) keyLabel.textContent = 'API Key';
+  const keyLabel = $('#inpKey')?.closest('.wx-cell')?.querySelector('label');
+  if ($('#inpKey')) {
+    if (p.noKey) {
+      $('#inpKey').placeholder = '本地模型不需要，留空即可';
+      if (keyLabel) keyLabel.textContent = 'API Key（本地不需要）';
+    } else {
+      $('#inpKey').placeholder = 'sk-...';
+      if (keyLabel) keyLabel.textContent = 'API Key';
+    }
   }
 
   // 手机本地模型：显示模型管理面板
@@ -1502,11 +1583,15 @@ function syncSettingsUI() {
   const otherLocal = all.filter((p) => p.local && !p.native);
   const cloud = all.filter((p) => !p.local);
   const opt = (p) => `<option value="${p.id}">${esc(p.name)}</option>`;
-  if (!$('#inpProvider')) return;
-  $('#inpProvider').innerHTML =
-    (nativeP.length ? `<optgroup label="手机本地（完全离线）">${nativeP.map(opt).join('')}</optgroup>` : '') +
-    (otherLocal.length ? `<optgroup label="连电脑使用（需要电脑开着）">${otherLocal.map(opt).join('')}</optgroup>` : '') +
-    `<optgroup label="云端 API（需要联网+Key）">${cloud.map(opt).join('')}</optgroup>`;
+  // ⚠️ 这里**不能 return**：服务商下拉已经不在界面上了（模型锁 deepseek-flash），
+  //    一 return 后面那五组单选的选中态就永远不刷新。
+  //    （和 applyProvider 里那个 return 是同一类坑，踩了两次。）
+  if ($('#inpProvider')) {
+    $('#inpProvider').innerHTML =
+      (nativeP.length ? `<optgroup label="手机本地（完全离线）">${nativeP.map(opt).join('')}</optgroup>` : '') +
+      (otherLocal.length ? `<optgroup label="连电脑使用（需要电脑开着）">${otherLocal.map(opt).join('')}</optgroup>` : '') +
+      `<optgroup label="云端 API（需要联网+Key）">${cloud.map(opt).join('')}</optgroup>`;
+  }
 
   // 兼容老配置
   if (!state.config.provider) {
@@ -1515,18 +1600,21 @@ function syncSettingsUI() {
   if (!availableProviders().some((p) => p.id === state.config.provider)) {
     state.config.provider = 'deepseek';
   }
-  $('#inpProvider').value = state.config.provider;
+  // 服务商 / 模型 / 接口地址这几个控件已经不在界面上了（模型锁 deepseek-flash），
+  // 所以这里全部用可选链 —— 元素不在也照样把后面的该刷的刷完。
+  if ($('#inpProvider')) $('#inpProvider').value = state.config.provider;
 
   applyProvider(state.config.provider);
 
-  $('#inpKey').value = state.config.apiKey || '';
-  $('#inpUserName').value = state.config.userName || state.profile.name || '';
+  if ($('#inpKey')) $('#inpKey').value = state.config.apiKey || '';
+  if ($('#inpUserName')) $('#inpUserName').value = state.config.userName || state.profile.name || '';
 
-  for (const [id, key] of [['#segLen', 'maxTokens'], ['#segBurst', 'burst'], ['#segTemp', 'temperature'], ['#segThink', 'thinking'], ['#segSpeak', 'autoSpeak']]) {
+  // 这五组单选现在属于「这个好友的设置」页
+  for (const [id, key] of [['#segLen2', 'maxTokens'], ['#segBurst2', 'burst'], ['#segTemp2', 'temperature'], ['#segThink2', 'thinking'], ['#segSpeak2', 'autoSpeak']]) {
     $$(`${id} button`).forEach((b) =>
       b.classList.toggle('on', Math.abs(Number(b.dataset.v) - Number(state.config[key])) < 0.01));
   }
-  $('#setupBanner').hidden = !needsSetup();
+  if ($('#setupBanner')) $('#setupBanner').hidden = !needsSetup();
   updateDataInfo();
 }
 
@@ -1768,22 +1856,66 @@ async function runSelfTest() {
 
 /** 把表单当前值读进 config（不落盘） */
 function readForm() {
-  const k = $('#inpKey').value.trim();
+  // 全局设置页现在只有 Key（模型锁死、用户名在「我」那一页）。
+  // 这几个控件可能都不在，所以全部可选链 —— 少一个也不能把关闭流程卡住。
+  const k = ($('#inpKey')?.value || '').trim();
   if (k) state.config.apiKey = k;
   state.config.model = $('#inpModel')?.value || state.config.model || LOCKED_MODEL;
   const ep = ($('#inpEndpoint')?.value || '').trim();
   if (ep) state.config.endpoint = ep;
-  state.config.userName = $('#inpUserName').value.trim().slice(0, 12);
-  if (state.config.userName) state.profile.name = state.config.userName;
+  const un = ($('#inpUserName')?.value || '').trim().slice(0, 12);
+  if (un) {
+    state.config.userName = un;
+    state.profile.name = un;
+  }
   return state.config;
 }
 
+/** 「设置」（全局）：只有模型 / API Key 那一块 */
 function openSettings() {
   // 关掉所有可能遮挡的东西，避免它盖住设置页里的按钮
   closePanels();
   closeMenu();
   syncSettingsUI();
   $('#screen-settings').classList.add('show');
+}
+
+/**
+ * 打开「这个好友的设置」（她的样子 / 她怎么回 / 数据）。
+ *
+ * ⚠️ 三个设置页是**三件不同的事**，别再混起来（用户特意提过"不要一直重复"）：
+ *   - 「设置」= 全局：只有模型 / API Key
+ *   - 「这个好友的设置」= **每个好友一份**：她的样子 / 她怎么回 / 数据
+ *   - 「我的资料」= 全局：我自己的名字头像职业…（所有好友共用）
+ * 所以这一页从**聊天页右上角 ··· → 设置**进。
+ */
+function openFriendSettings() {
+  closeMenu();
+  closePanels();
+  syncSettingsUI();        // 把五个单选组画成"当前这个好友"的值
+  renderHerIdentity();     // 名字 / 头像预览
+  updateDataInfo();
+  const t = $('#friendSetTitle');
+  if (t) t.textContent = `${herName()}的设置`;
+  $('#screen-friend').hidden = false;
+  $('#screen-friend').classList.add('show');
+}
+
+function closeFriendSettings() {
+  $('#screen-friend').classList.remove('show');
+  $('#screen-friend').hidden = true;
+}
+
+/**
+ * 从「这个好友的设置」进人设页（她的样子 → 重新设定）。
+ *
+ * ⚠️ **不关掉好友设置页**，让它留在下面 —— 人设页的 z-index 更高，
+ * 会盖在它上面；关掉人设页就自然回到好友设置页。
+ * （原来这里是先 closeFriendSettings 再开人设页，结果"关掉人设页"
+ *   回不到好友设置页，只能一路退回聊天页。）
+ */
+function openPersonaFromFriend() {
+  openPersona({ fromSettings: true });
 }
 
 function openMenu() {
@@ -2735,6 +2867,8 @@ function doImportHistory() {
   } else {
     state.messages = [...state.messages, ...incoming];
   }
+  // 记录被整体替换/追加了一大段 → 增量记账作废，下次老实全画
+  resetChatRender();
 
   // 顺带导入她记得的事
   const factsAdded = mergeFacts(state.profile, facts);
@@ -2787,7 +2921,9 @@ function avatarOps(who) {
     who,
     title: her ? '给她选一个头像' : '给你自己选一个头像',
     list: her ? HER_EMOJIS : MY_EMOJIS,
-    preview: her ? '#herAvatarPreview' : '#myAvatarPreview',
+    // ⚠️ 这里的选择器必须跟 HTML 对上。搬「我」那一页的时候改过 id：
+    //    #myAvatarPreview → #meAvatarPreview（踩过：预览不更新，头像看着换不了）
+    preview: her ? '#herAvatarPreview' : '#meAvatarPreview',
     pic: () => (her ? herAvatarPic() : myAvatarPic()),
     emoji: () => (her ? herEmoji() : myEmoji()),
     // 没有 emoji 也没图片时，预览里显示的占位
@@ -2861,7 +2997,13 @@ function renderHerIdentity() {
 /** 改完头像/名字后重画聊天，让气泡头像立即更新 */
 function refreshAll() {
   renderHerIdentity();
+  // ⚠️ 必须**强制全画**：增量渲染只看消息内容/时间戳，
+  //    "头像或名字变了但消息没变"在它眼里等于"不用重画" ——
+  //    于是气泡上还是旧头像（踩过）。这里把记账清掉再画。
+  resetChatRender();
   renderChat();
+  // 好友列表里的头像/名字也跟着换（不然列表还显示旧头像）
+  try { friendUI?.renderNav?.(); } catch {}
   if (typeof renderMemoryPage === 'function') {
     try { renderMemoryPage(); } catch {}
   }
@@ -3196,7 +3338,6 @@ function setupDownloadEntry() {
   $('#btnDownloadBar')?.addEventListener('click', openDownloadPage);
   if (!APK_URL) $('#apkEntry')?.setAttribute('hidden', '');
 }
-
 // ---------------------------------------------------------------- 启动
 
 function bootGreeting() {
@@ -3374,7 +3515,9 @@ function bindMenu() {
     restart: restartChat,
     clearHistory: clearAll,
     forget: forgetMemory,
-    settings: openSettings,
+    // ⚠️ 聊天页里的「设置」= **这个好友的设置**（不是全局）。
+    //    全局那个只有模型 / Key，从「我」那一页进。
+    settings: openFriendSettings,
     memory: openMemory,
     download: openDownloadPage,
   };
@@ -3469,7 +3612,10 @@ function bindPersonaForm() {
 
 /** 「她记得的事」：搜索、手动增删、导入导出 */
 function bindMemoryScreen() {
-  $('#btnOpenMemory').addEventListener('click', openMemory);
+  // 「她记得的事」的入口现在在「这个好友的设置」页里（id 带 2）。
+  // 老位置那个已经不存在了，所以两处都用可选链兜着。
+  $('#btnOpenMemory2')?.addEventListener('click', openMemory);
+  $('#btnOpenMemory')?.addEventListener('click', openMemory);
   $('#btnCloseMemory').addEventListener('click', () => {
     $('#screen-memory').classList.remove('show');
   });
@@ -3504,7 +3650,12 @@ function bindMemoryScreen() {
 function bindSettingsForm() {
   $('#btnCloseSettings').addEventListener('click', () => {
     saveSettingsFields();
+    // ⚠️ 这里必须**同时**摘掉 show 类 —— 只靠 hidden 是关不掉的
+    //    （`.screen.overlay` 的显示/隐藏完全由 show 类控制）。
+    //    踩过：改 openSettings 时漏了这条路径，设置页关不掉，
+    //    test-app 的"设置页默认不可见"当场变红。
     $('#screen-settings').classList.remove('show');
+    $('#screen-settings').hidden = true;
   });
   $('#btnTest').addEventListener('click', testConnection);
 
@@ -3538,7 +3689,15 @@ function bindSettingsForm() {
 
   bindNamesAndAvatars();
   bindReplyStyle();
-  $('#btnWipe').addEventListener('click', clearAll);
+  // ── 「这个好友的设置」那一页 ──
+  $('#btnClearChat2').addEventListener('click', clearAll);
+  $('#btnForget2')?.addEventListener('click', forgetMemory);
+  $('#btnCloseFriend')?.addEventListener('click', closeFriendSettings);
+  $('#btnOpenPersonaFromFriend')?.addEventListener('click', openPersonaFromFriend);
+  $('#btnOpenMemory2')?.addEventListener('click', () => {
+    closeFriendSettings();
+    openMemory();
+  });
 }
 
 /** 「你是」和「她的样子」：名字、头像 */
@@ -3565,12 +3724,7 @@ function bindNamesAndAvatars() {
   // 「更换」按钮：先记下这次要改的是谁，再开面板
   $$('[data-pick-avatar]').forEach((b) => {
     b.addEventListener('click', () => {
-      avatarTarget = b.dataset.pickAvatar === 'me' ? 'me' : 'her';
-      const p = $('#avatarPanel');
-      if (!p) return;
-      p.hidden = false;
-      renderAvatarPanel();
-      p.scrollIntoView?.({ block: 'nearest' });
+      openAvatarPanel(b.dataset.pickAvatar === 'me' ? 'me' : 'her');
     });
   });
 
@@ -3585,16 +3739,20 @@ function bindNamesAndAvatars() {
     e.target.value = '';   // 允许重复选同一个文件
   });
   $('#btnResetAvatar')?.addEventListener('click', resetAvatar);
+  // 面板是覆盖层，得能关掉：点空白处 / 选完自动关
+  $('#avatarPanel')?.addEventListener('click', (e) => {
+    if (e.target === $('#avatarPanel')) closeAvatarPanel();
+  });
 }
 
 /** 「她怎么回」那五组单选 */
 function bindReplyStyle() {
   const SEGS = [
-    ['#segLen', 'maxTokens'],
-    ['#segBurst', 'burst'],
-    ['#segTemp', 'temperature'],
-    ['#segThink', 'thinking'],
-    ['#segSpeak', 'autoSpeak'],
+    ['#segLen2', 'maxTokens'],
+    ['#segBurst2', 'burst'],
+    ['#segTemp2', 'temperature'],
+    ['#segThink2', 'thinking'],
+    ['#segSpeak2', 'autoSpeak'],
   ];
   for (const [sel, key] of SEGS) {
     onSeg(sel, (v) => {
@@ -3622,6 +3780,7 @@ async function restartChat() {
   if (!confirm('清空聊天，让她重新跟你打招呼？\n（她会换个场景重新开始，但还记得关于你的事）')) return;
   state.messages = [];
   resetRecallIndex();     // 记录清空了，检索索引必须跟着丢（否则指向不存在的消息）
+  resetChatRender();
   saveChat();
   ensureScene(true);      // 重新开始 → 换个场景
   renderChat();
@@ -3634,6 +3793,7 @@ async function clearAll() {
   if (!confirm('清空全部聊天记录？她就不会记得这些了。')) return;
   state.messages = [];
   resetRecallIndex();
+  resetChatRender();
   saveChat();
   renderChat();
   bootGreeting();

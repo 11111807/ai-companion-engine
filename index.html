@@ -19,13 +19,10 @@
 <!-- ==================== 消息页（首页） ==================== -->
 <!-- 微信的底部四格：消息 / 好友 / 我。聊天页是"消息"里点进去的下一层。 -->
 <section class="screen home" id="screen-msgs">
+  <!-- 右上角原来有个 ··· ，去掉了：点进聊天框后右上角本来就有一个，
+       两个功能完全一样，摆在这儿只是重复。（用户反馈） -->
   <header class="wx-navbar home-nav">
     <div class="wx-navbar-title"><strong>消息</strong></div>
-    <button class="wx-navbar-btn" id="btnMsgsMore" aria-label="更多">
-      <svg viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/>
-      </svg>
-    </button>
   </header>
   <div class="wx-list" id="msgList"></div>
 </section>
@@ -90,6 +87,17 @@
       这些资料<b>所有好友共用一份</b>：她们都知道你是谁、做什么的。
       记忆和好感度则各人各一份，互不干涉。
     </div>
+    <!-- 安卓版入口：以前是聊天页顶部的大横幅，太抢眼，挪到这里 -->
+    <div class="wx-group" id="apkEntry">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">手机离线版（安卓 App）</span>
+        <button class="wx-btn-text" id="btnDownloadBar">了解</button>
+      </div>
+      <div class="wx-cell-note">
+        网页版要联网、要走 API；装成 App 之后可以<b>把模型放在手机里跑</b>，
+        断网也能聊，不花一分钱。不想装就忽略这一条。
+      </div>
+    </div>
 
     <div class="wx-group-title">我是什么样的人</div>
     <div class="wx-group">
@@ -99,10 +107,10 @@
       </div>
       <div class="wx-cell between">
         <span class="wx-cell-label">头像</span>
-        <div class="wx-avatar-pick">
-          <div class="wx-avatar item" id="meAvatarPreview">我</div>
-          <button class="wx-btn-text" id="btnPickMeAvatar">更换</button>
-        </div>
+        <button class="wx-avatar-pick" id="btnPickMeAvatar" type="button">
+          <span class="wx-avatar item" id="meAvatarPreview">我</span>
+          <span class="wx-btn-text">更换</span>
+        </button>
       </div>
       <div class="wx-cell">
         <label for="meJob">职业 / 专业</label>
@@ -658,28 +666,32 @@
       </div>
     </div>
 
-    <div class="wx-group-title">你是</div>
-    <div class="wx-group">
-      <div class="wx-cell">
-        <label for="inpUserName">你的名字</label>
-        <input id="inpUserName" type="text" placeholder="她怎么称呼你" maxlength="12" />
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">你的头像</span>
-        <div class="wx-avatar-pick">
-          <span class="cur" id="myAvatarPreview">我</span>
-          <button class="wx-btn-text" data-pick-avatar="me">更换</button>
-        </div>
-      </div>
-      <div class="wx-cell-note">
-        就是聊天里右边那个头像。
-      </div>
+    <div class="wx-settings-tip">
+      把本页「添加到主屏幕」，就能像 App 一样打开。<br />
+      页面本身离线也能打开，聊天需要联网。
     </div>
+  </div>
+</section>
+
+<!-- ==================== 这个好友的设置 ====================
+     从聊天页右上角 ··· → 设置 进来。
+     **每个好友一份，完全独立**：她的样子 / 她怎么回 / 数据 都在这里。
+     和「设置」（全局：只有模型）以及「我」（我的资料）是三件不同的事，别混。 -->
+<section class="screen overlay wx-settings" id="screen-friend" hidden>
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseFriend" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong id="friendSetTitle">她的设置</strong></div>
+  </header>
+  <div class="wx-settings-body">
 
     <div class="wx-group-title">她的样子</div>
     <div class="wx-group">
       <div class="wx-cell">
-        <label for="inpHerName">她的名字</label>
+        <label for="inpHerName">她叫什么</label>
         <input id="inpHerName" type="text" placeholder="小雨" maxlength="8" />
       </div>
       <div class="wx-cell between">
@@ -689,19 +701,97 @@
           <button class="wx-btn-text" data-pick-avatar="her">更换</button>
         </div>
       </div>
-      <div class="wx-cell-note">
-        改完立即生效。名字和头像只存在这台手机上。
-      </div>
       <div class="wx-cell between">
-        <span class="wx-cell-label">她的人设（性格 / 年龄 / 职业 / 关系 / 好感度）</span>
-        <button class="wx-btn-text" id="btnOpenPersona">重新设定</button>
+        <span class="wx-cell-label">她的人设（性别 / 年龄 / 职业 / 关系 / 生日 / 性格 / 初始环境 / 好感度）</span>
+        <button class="wx-btn-text" id="btnOpenPersonaFromFriend">重新设定</button>
+      </div>
+      <div class="wx-cell-note">
+        名字和头像改完立即生效，只存在这台手机上。<br />
+        <b>这一整页都只属于这个好友</b>，换个好友看到的是他自己那份。
       </div>
     </div>
 
-    <!-- 头像选择面板（「你」和「她」共用） -->
-    <div class="wx-group" id="avatarPanel" hidden>
+    <div class="wx-group-title">她怎么回</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">回复长度</span>
+        <div class="wx-seg" id="segLen2">
+          <button data-v="120">很短</button>
+          <button data-v="250">适中</button>
+          <button data-v="500">长一点</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">连发条数</span>
+        <div class="wx-seg" id="segBurst2">
+          <button data-v="1">一条</button>
+          <button data-v="2">正常</button>
+          <button data-v="3">话痨</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">活泼程度</span>
+        <div class="wx-seg" id="segTemp2">
+          <button data-v="0.7">安静</button>
+          <button data-v="1.0">正常</button>
+          <button data-v="1.3">很跳</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">深度思考</span>
+        <div class="wx-seg" id="segThink2">
+          <button data-v="0">关（快）</button>
+          <button data-v="1">开（慢）</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        开着她会先在心里想一遍再开口，记人记事更准，但每次要多等几秒、也稍贵一点。
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">主动找你说话</span>
+        <div class="wx-seg" id="segSpeak2">
+          <button data-v="1">开</button>
+          <button data-v="0">关</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        开着的话，你打开聊天页却半天不说话、或者从后台切回来，她会主动起个话头。一次最多两次。
+      </div>
+    </div>
+
+    <div class="wx-group-title">数据</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label" id="dataInfo2">—</span>
+        <button class="wx-btn-text" id="btnOpenMemory2">她记得的事</button>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">清空和她的聊天</span>
+        <button class="wx-btn-text danger" id="btnClearChat2">清空</button>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">让她忘掉记住的事</span>
+        <button class="wx-btn-text danger" id="btnForget2">忘掉</button>
+      </div>
+      <div class="wx-cell-note">
+        这两项只影响<b>这个好友</b>：她的聊天记录和她记住的事。
+        别的 AI 好友的记录、记忆都不动。
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ==================== 头像选择面板（「她」和「我」共用） ====================
+     顶层覆盖面板：不放在任何一页里面 —— 放在里面的话，父页不可见时
+     它的 computed display 也是 none，点了"更换"看着像没反应。
+     样式上它靠 .show 控制，见 src/styles.css 的 #avatarPanel。 -->
+<section class="wx-settings overlay" id="avatarPanel" hidden>
+  <div class="wx-settings-body">
+    <div class="wx-group-title" id="avatarPanelTitle">给她选一个头像</div>
+    <div class="wx-group">
       <div class="wx-cell">
-        <label id="avatarPanelTitle">给她选一个头像</label>
         <div class="wx-emoji-pick" id="avatarEmojiList"></div>
       </div>
       <div class="wx-cell-cell">
@@ -711,86 +801,6 @@
       <div class="wx-cell-cell">
         <button class="wx-btn-text" id="btnResetAvatar">恢复默认</button>
       </div>
-    </div>
-
-    <div class="wx-group-title">她怎么回</div>
-    <div class="wx-group">
-      <div class="wx-cell between">
-        <span class="wx-cell-label">回复长度</span>
-        <div class="wx-seg" id="segLen">
-          <button data-v="120">很短</button>
-          <button data-v="250" class="on">适中</button>
-          <button data-v="500">长一点</button>
-        </div>
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">连发条数</span>
-        <div class="wx-seg" id="segBurst">
-          <button data-v="1">一条</button>
-          <button data-v="2">正常</button>
-          <button data-v="3" class="on">话痨</button>
-        </div>
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">活泼程度</span>
-        <div class="wx-seg" id="segTemp">
-          <button data-v="0.7">安静</button>
-          <button data-v="1.0" class="on">正常</button>
-          <button data-v="1.3">很跳</button>
-        </div>
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">深度思考</span>
-        <div class="wx-seg" id="segThink">
-          <button data-v="0" class="on">关（快）</button>
-          <button data-v="1">开（慢）</button>
-        </div>
-      </div>
-      <div class="wx-cell-note">
-        开着她会先在心里想一遍再开口，记人记事更准，但每次要多等几秒、也稍贵一点。想让她更好记住你们的对话，就开上。仅对 DeepSeek 官方生效。
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">主动找你说话</span>
-        <div class="wx-seg" id="segSpeak">
-          <button data-v="1" class="on">开</button>
-          <button data-v="0">关</button>
-        </div>
-      </div>
-      <div class="wx-cell-note">
-        开着的话，你打开聊天页却半天不说话、或者从后台切回来，她会主动起个话头（接着上文聊、或者说她自己的事），而不是干等你开口。一次最多主动两次，说完就安静。
-      </div>
-    </div>
-
-    <div class="wx-group-title">数据</div>
-    <div class="wx-group">
-      <div class="wx-cell between">
-        <span class="wx-cell-label" id="dataInfo">—</span>
-        <button class="wx-btn-text" id="btnOpenMemory">她记得的事</button>
-      </div>
-      <div class="wx-cell between">
-        <span class="wx-cell-label">全部清除</span>
-        <button class="wx-btn-text danger" id="btnWipe">清除</button>
-      </div>
-      <div class="wx-cell-note">
-        聊天记录只保存在这台手机上。她记得你说过的话，也是靠这份记录。
-      </div>
-    </div>
-
-    <!-- 安卓版入口：以前是聊天页顶部的大横幅，太抢眼，挪到这里 -->
-    <div class="wx-group" id="apkEntry">
-      <div class="wx-cell between">
-        <span class="wx-cell-label">手机离线版（安卓 App）</span>
-        <button class="wx-btn-text" id="btnDownloadBar">了解</button>
-      </div>
-      <div class="wx-cell-note">
-        网页版要联网、要走 API；装成 App 之后可以<b>把模型放在手机里跑</b>，
-        断网也能聊，不花一分钱。不想装就忽略这一条。
-      </div>
-    </div>
-
-    <div class="wx-settings-tip">
-      把本页「添加到主屏幕」，就能像 App 一样打开。<br />
-      页面本身离线也能打开，聊天需要联网。
     </div>
   </div>
 </section>

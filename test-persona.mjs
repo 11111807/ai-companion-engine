@@ -12,6 +12,13 @@
 
 import { bootApp, msg } from './boot.mjs';
 import { SIGNS, signOf, parseBirthday, birthdayText, zodiacBlock, signSummary } from './src/zodiac.js';
+
+/** 打开「这个好友的设置」页（聊天页 ··· → 设置）。这一轮新加的小工具。 */
+function openFriendSettingsVia(app) {
+  app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  app.$('#actionSheet').querySelector('[data-act="settings"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+}
 import {
   levelOf, clamp, affectionBlock, regardBlock, drift,
   suggestFromTraits, traitAffectionWarning, LEVELS,
@@ -510,8 +517,10 @@ console.log('\n[7] 从设置重新设定人设 ...');
   const $ = app.$;
 
   check('老用户不会一上来就被人设页拦住', !$('#screen-persona').classList.contains('show'));
-  check('设置里有重新设定的入口', !!$('#btnOpenPersona'));
-  $('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  // 「重新设定」这一轮搬到了「这个好友的设置」页（她的样子 → 重新设定）
+  openFriendSettingsVia(app);
+  check('好友设置页里有重新设定的入口', !!$('#btnOpenPersonaFromFriend'));
+  $('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('点得开人设页', $('#screen-persona').classList.contains('show'));
   check('而且它盖在设置页上面（不然看着像"点了没反应"）',
     (Number(app.window.getComputedStyle($('#screen-persona')).zIndex) || 0)
@@ -527,7 +536,7 @@ console.log('\n[7] 从设置重新设定人设 ...');
   check('能关掉', !$('#screen-persona').classList.contains('show'));
 
   // 恢复默认
-  $('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  $('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   $('#btnPersonaReset').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
   const prof = JSON.parse(app.window.localStorage.getItem('xiaoyu.profile.v1'));
@@ -614,7 +623,8 @@ console.log('\n[8.1] 生平要点一定会进提示词（哪怕聊天学到的�
   windows.push(app.dom.window);
 
   // 走一遍人设页，让生平写进记忆
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#btnPersonaStart').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
   await app.send('今天好累');
@@ -643,7 +653,8 @@ console.log('\n[8.2] 改生平：只换生平那几条，不动聊天学到的 .
   check('第一次保存时，原先学到的记忆还在', p1.facts.includes(learned), p1.facts.join(' | '));
 
   // 回来改生平（删掉"猫"，加一条"妹妹"）
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('重新打开人设页会带出上次写的生平', /杭州/.test($('#perBio').value), $('#perBio').value);
   $('#perBio').value = '我在杭州做开发\n有个妹妹在读大学';
   $('#perBio').dispatchEvent(new app.window.Event('input', { bubbles: true }));
@@ -666,7 +677,8 @@ console.log('\n[8.3] 生平可以留空 / 清空 ...');
   let p = JSON.parse(app.window.localStorage.getItem('xiaoyu.profile.v1'));
   check('写了就有', p.facts.includes('他在成都，做设计的'));
 
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('清空后提示"还没写"', (() => {
     app.$('#perBio').value = '';
     app.$('#perBio').dispatchEvent(new app.window.Event('input', { bubbles: true }));
@@ -687,7 +699,8 @@ console.log('\n[8.4] 在记忆页删掉生平里的一条 ...');
   app.$('#perBio').dispatchEvent(new app.window.Event('input', { bubbles: true }));
   app.$('#btnPersonaStart').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   const del = app.$$('#memFacts .wx-mem-del').find((b) =>
     decodeURIComponent(b.dataset.delText || '').includes('豆豆'));
   check('记忆页能看到生平来的条目', !!del);
@@ -706,7 +719,8 @@ console.log('\n[8.5] 恢复默认会连生平一起清掉 ...');
   app.$('#perBio').value = '我在杭州做开发';
   app.$('#perBio').dispatchEvent(new app.window.Event('input', { bubbles: true }));
   app.$('#btnPersonaStart').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#btnPersonaReset').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
   const p = JSON.parse(app.window.localStorage.getItem('xiaoyu.profile.v1'));
@@ -1109,7 +1123,8 @@ console.log('\n[12.4] 界面上能看见、也能自己标 ...');
   windows.push(app.dom.window);
   const $ = app.$;
 
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
   const badges = app.$$('#memFacts .wx-mem-strength').map((e) => e.textContent);
   check('执念显示成「执念」标签', badges.includes('执念'), badges.join(' / '));

@@ -233,18 +233,73 @@ body { background: var(--wx-bg); }
 .wx-narr-row input::placeholder { color: #bbb; }
 .wx-narr-row input:focus { border-color: var(--wx-green); }
 
-/* 旁白气泡：跟普通消息区分开（灰底、居中、斜体），一眼看出不是"她说的话" */
+/* 旁白气泡：和"她说的话"区分开 —— 不要头像、不要气泡底色，
+ * 靠**左右分边**表示是谁写的（她的在左、我的在右，和对话方向一致）。
+ * 斜体 + 灰色，一眼看出这是"场景说明"不是台词。 */
 .wx-bubble.narr {
   background: transparent;
-  border: 1px dashed #d8d8d8;
+  border: 1px dashed #d0d0d0;
+  border-radius: 8px;
   color: #8a8a8a;
   font-style: italic;
-  font-size: 13px;
-  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 4px 10px;
+  max-width: 76%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 我的旁白靠右、她的靠左 —— 不和对话气泡抢视觉重心，但要能分清谁写的 */
+.wx-row.narr.out { justify-content: flex-end; }
+.wx-row.narr.in { justify-content: flex-start; }
+.wx-row.narr.out .wx-bubble.narr { border-color: #cfe6d4; }
+.wx-row.narr.in .wx-bubble.narr { border-color: #e2d4d8; }
+
+/* ---------------- 头像选择面板 ----------------
+ *
+ * 它是**顶层覆盖面板**（不在任何一页里面）：放在某一页里面的话，
+ * 那一页不可见时它的 computed display 也是 none，点"更换"看着像没反应。
+ * 这里用 fixed + .show 控制，和各个设置页一个套路。
+ */
+#avatarPanel {
+  position: fixed;
+  inset: 0;
+  z-index: 6;                    /* 高于所有设置页，低于 toast */
+  background: var(--wx-bg);
+  transform: translateY(100%);
+  transition: transform .24s cubic-bezier(.32, .72, 0, 1), visibility .24s;
+  visibility: hidden;
+  overflow-y: auto;
+}
+#avatarPanel.show { transform: translateY(0); visibility: visible; }
+#avatarPanel .wx-emoji-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#avatarPanel .wx-emoji-pick button {
+  width: 40px; height: 40px;
+  font-size: 20px;
+  border: 1px solid var(--wx-line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+#avatarPanel .wx-emoji-pick button.on { border-color: var(--wx-green); background: #eafaf0; }
+
+/* 「我」那页的头像行：整行可点 */
+.wx-avatar-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
 }
 
-/* 列表行里的头像。
-   不复用 .wx-avatar.her —— 那个类是"聊天页里她的头像"，
+/* 列表行里的头像。   不复用 .wx-avatar.her —— 那个类是"聊天页里她的头像"，
    测试要靠它验证"换头像后聊天区跟着变"，复用会让选择器抓到列表里的。 */
 .wx-avatar.item {
   flex: 0 0 auto;

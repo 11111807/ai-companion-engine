@@ -17,6 +17,13 @@
 
 import { bootApp, msg } from './boot.mjs';
 
+/** 打开「这个好友的设置」页（聊天页 ··· → 设置）。这一轮新加的小工具。 */
+function openFriendSettingsVia(app) {
+  app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  app.$('#actionSheet').querySelector('[data-act="settings"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+}
+
 let pass = 0;
 let fail = 0;
 const check = (n, ok, extra = '') => {
@@ -137,7 +144,8 @@ console.log('\n[4] 导入记录 → 她该记住并提起 ...');
 [7/14 22:16] 小雨：那你别熬太狠了
 `;
 
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#btnShowImport').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#importText').value = HISTORY;
   app.$('#segImport').querySelector('[data-v="replace"]')
@@ -199,7 +207,8 @@ console.log('\n[5] 手动加一条 → 下一轮她就读到 ...');
 {
   const app = bootApp();
   windows.push(app.dom.window);
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#inpNewFact').value = '他在齐齐哈尔长大';
   app.$('#btnAddFact').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#btnCloseMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
@@ -224,7 +233,8 @@ console.log('\n[6] 存储占用可见 ...');
   // 80 条原有 + 她主动开口的 3 条
   check('大记录也能正常加载', n >= 80, `${n} 条`);
 
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('记忆页显示存储占用百分比', /存储 \d+%/.test(app.$('#memStats').textContent),
     app.$('#memStats').textContent);
 }
@@ -305,19 +315,19 @@ console.log('\n[8] 她会主动开口 ...');
     check('主动开口时提示词里没有旧本名「沈雨」', !/沈雨/.test(sys));
   }
 
-  // 设置开关
-  app.$('#screen-settings').classList.add('show');
-  check('设置里有「主动找你说话」开关', !!app.$('#segSpeak'));
+  // 设置开关（这一轮搬到了「这个好友的设置」页）
+  openFriendSettingsVia(app);
+  check('好友设置页里有「主动找你说话」开关', !!app.$('#segSpeak2'));
   check('默认是开的', (() => {
-    const on = app.$$('#segSpeak button').find((b) => b.classList.contains('on'));
+    const on = app.$$('#segSpeak2 button').find((b) => b.classList.contains('on'));
     return !!on && on.dataset.v === '1';
-  })(), app.$$('#segSpeak button').find((b) => b.classList.contains('on'))?.textContent);
+  })(), app.$$('#segSpeak2 button').find((b) => b.classList.contains('on'))?.textContent);
 
   check('可以关掉，并会写进配置', (() => {
-    app.$$('#segSpeak button')[1].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    app.$$('#segSpeak2 button')[1].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
     const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1') || '{}');
     const off = Number(cfg.autoSpeak) === 0;
-    app.$$('#segSpeak button')[0].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    app.$$('#segSpeak2 button')[0].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
     return off;
   })());
 }
@@ -469,7 +479,8 @@ console.log('\n[12] 反复提到的事记得更牢 ...');
   check('没有重复存成两条', p.facts.filter((f) => f.includes('做饭')).length === 1,
     p.facts.join(' | '));
 
-  app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   check('记忆页显示记忆强度标签',
     app.$$('#memFacts .wx-mem-strength').length > 0,
     app.$$('#memFacts .wx-mem-strength').map((e) => e.textContent).join(' / '));

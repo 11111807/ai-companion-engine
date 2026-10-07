@@ -283,6 +283,40 @@ const CASES = [
     },
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    name: '17-friend-settings',
+    w: 390, h: 900,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herName: '小雨', personaDone: true, herRelation: '恋人' } },
+    setup: (app) => {
+      app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      app.$('#actionSheet').querySelector('[data-act="settings"]')
+        .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+  },
+  {
+    name: '18-global-settings',
+    w: 390, h: 700,
+    seed: { profile: { msgCount: 320 }, config: { personaDone: true, apiKey: 'sk-test' } },
+    setup: (app) => { app.$('#screen-settings').classList.add('show'); },
+  },
+  {
+    name: '19-narration-sides',
+    w: 390, h: 844,
+    seed: {
+      chat: [
+        { role: 'user', content: '（她推门进来，手里拎着两杯奶茶）', ts: NOW - 300e3, narr: true },
+        { role: 'assistant', content: '诶？你怎么知道我想喝这个', ts: NOW - 290e3 },
+        { role: 'assistant', content: '（她把其中一杯推到你面前）', ts: NOW - 280e3, narr: true },
+        { role: 'user', content: '这杯给你', ts: NOW - 270e3 },
+        { role: 'user', content: '外面下雨了，路上有点堵', ts: NOW - 260e3, narr: true },
+        { role: 'assistant', content: '那你淋湿了没啊', ts: NOW - 250e3 },
+      ],
+      profile: { msgCount: 320, mood: { joy: 12 }, moodAt: NOW - 30e3 },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: () => {},
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });

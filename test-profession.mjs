@@ -16,6 +16,13 @@
  */
 
 import { bootApp, msg } from './boot.mjs';
+
+/** 打开「这个好友的设置」页（聊天页 ··· → 设置）。这一轮新加的小工具。 */
+function openFriendSettingsVia(app) {
+  app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  app.$('#actionSheet').querySelector('[data-act="settings"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+}
 import {
   DOMAINS, domainOf, knowledgeBlock, userFieldBlock, professionBlock,
 } from './src/profession.js';
@@ -256,7 +263,8 @@ console.log('\n[5] 人设页里的「你的职业 / 专业」...');
     },
   });
   windows.push(app2.dom.window);
-  app2.$('#btnOpenPersona').dispatchEvent(new app2.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app2);
+  app2.$('#btnOpenPersonaFromFriend').dispatchEvent(new app2.window.MouseEvent('click', { bubbles: true }));
   check('重新打开人设页，她的职业填回来了', app2.$('#perJob').value === '视觉传达设计',
     app2.$('#perJob').value);
   check('重新打开人设页，你的职业也填回来了', app2.$('#perUserJob').value === '会计',
@@ -284,7 +292,8 @@ console.log('\n[5.1] 存进配置、并且真的发给了模型 ...');
 
   // 走真实路径：先打开人设页（表单会被现有配置填满），再填这一格、再点「开始聊天」。
   // ⚠️ 不能跳过"打开"这一步：applyPersona 是照表单读的，表单空着就会把配置清空。
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#perUserJob').value = '临床医学';
   app.$('#btnPersonaStart').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
@@ -308,7 +317,8 @@ console.log('\n[5.2] 「恢复默认」要把这一格一起清掉 ...');
     },
   });
   windows.push(app.dom.window);
-  app.$('#btnOpenPersona').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  openFriendSettingsVia(app);
+  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   app.$('#btnPersonaReset').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
   check('她的职业清空了', !cfg.herJob || cfg.herJob === '');
