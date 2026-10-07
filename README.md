@@ -484,7 +484,7 @@ download.html           安卓版下载页（APK_URL 留空时自动收起来）
 manifest.webmanifest    PWA
 sw.js                   Service Worker
 src/                    所有模块，见上面的模块职责表（25 个文件）
-test-*.mjs              12 个测试文件
+test-*.mjs              12 个测试文件（+ test-all.mjs 汇总跑）
 boot.mjs / inline.mjs   测试引导器：把模块内联进 jsdom
 complexity.mjs          圈复杂度分析器（零依赖）
 serve.mjs               本地静态服务器
