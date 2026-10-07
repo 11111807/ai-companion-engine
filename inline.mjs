@@ -77,7 +77,7 @@ const APP_REPLACEMENTS = [
     'const { SEARCH_MAX_HITS, searchMessages: searchIn, snippetOf } = __search;'],
   // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/narration\.js['"];?/,
-    'const { splitNarration } = __narration;'],
+    'const { splitNarration, recentNarrations, narrationVaryBlock } = __narration;'],
   // config.js 只是一行地址常量。内联环境里给它一个空地址，
   // 效果就是"这个部署没配安装包"——和开源版的真实情况一致。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/config\.js['"];?/,
@@ -117,7 +117,7 @@ const EXPORTS = {
     'permanentReason', 'strengthLabel', 'strengthPercent', 'PERMANENT_HITS', 'OBSESSION_EMO',
     'halfLifeDays', 'FORGET_BELOW'],
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
-  narration: ['splitNarration'],
+  narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
     'fixConfigShape', 'fixProfileShape', 'sanitizeAffection', 'storageUsed', 'historyBytes',

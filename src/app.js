@@ -68,7 +68,7 @@ import {
   mergeFacts,
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
-import { splitNarration } from './narration.js';
+import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
 import { APK_URL } from './config.js';
 
 // APK 环境才有 native.js（网页版部署包里没有这个文件），
@@ -1312,6 +1312,63 @@ async function nativeStreamChat({ systemPrompt, messages, temperature, maxTokens
   return text;
 }
 
+/**
+ * 兜底：她只写了动作、一个字都没说，把欠的那句话要回来。
+ *
+ * 为什么要在代码里兜，而不是只写进提示词（用户实测踩到的场景）：
+ *   他问"几点了" → 她只发"（抬头看墙上的钟）"，然后就没了 —— 他还得再问一遍。
+ *   提示词只能降低这种概率（见 persona.js 的【他在等你的回答】），
+ *   但"这一轮白聊了"是他明确不能接受的，所以在渲染前补一道：
+ *   再问一次，**只要台词**，跟原来那个动作拼起来。
+ *
+ * 三条自我约束：
+ *   1. 只在**整轮都是旁白**时触发 —— 正常回复一次请求都不会多发
+ *   2. 一轮最多补一次；补回来还是旁白就认了（**绝不循环**）
+ *   3. 补的过程失败（断网/超时）就当没发生，原来的旁白照常显示
+ *
+ * @returns {Promise<string[]>} 补回来的台词（可能为空数组）
+ */
+async function askForWords({ systemPrompt, history, narration, signal }) {
+  const messages = [
+    ...history,
+    { role: 'assistant', content: narrLine(narration) },
+    {
+      role: 'user',
+      content: '（系统提示：你刚才只发了一个动作，什么都没说 —— 他现在在等你的回答。'
+        + '请直接说你要说的话，1-2 条，把该回答的答上；'
+        + '不要再重复那个动作，也不要再写括号旁白。）',
+    },
+  ];
+  const args = {
+    systemPrompt,
+    messages,
+    temperature: Number(state.config.temperature) || 1.0,
+    maxTokens: 120,
+    signal,
+  };
+
+  try {
+    let out = '';
+    if (getProvider(state.config.provider).id === 'native-local') {
+      out = await nativeStreamChat(args);
+    } else {
+      await streamChat({
+        ...args,
+        apiKey: state.config.apiKey.trim(),
+        endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
+        model: state.config.model || DEFAULT_MODEL,
+        thinking: false,          // 补一句话不用深度思考
+        onDelta(piece) { out += piece; },
+      });
+    }
+    // 她可能又顺手带上隐藏块（记忆 / 情绪）→ 擦掉，这里只取台词
+    const clean = parseMoodBlock(extractMemory(out).clean).clean;
+    return replyItems(clean, 1).filter((it) => !it.narr).map((it) => it.content);
+  } catch {
+    return [];
+  }
+}
+
 /** 让她回复（也被"重新开始"复用） */
 async function respond() {
   setGenerating(true);
@@ -1351,6 +1408,9 @@ async function respond() {
     relationShiftHint(pendingRelationSignal),
     // 他反复做过的动作（抱住、摸头…）→ 提醒她别再给"第一次"的反应
     habitsBlock(state.messages.filter((m) => m.role === 'user' || m.role === 'assistant')),
+    // 她最近写过的旁白 → 提醒她别原样重复（"旁白更灵动"靠这一半兜住，
+    // 光在提示词里写"别重复"没用：她看不见自己前几轮写过什么）
+    narrationVaryBlock(recentNarrations(state.messages)),
     `【记住前面聊过的】（很重要）
 上面给了你最近的完整对话记录。你必须**记得并沿用**这些内容：
 - 他刚说过的名字、地点、事情、情绪，不要当成没听过
@@ -1432,7 +1492,19 @@ async function respond() {
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')?.content || '';
     applyMood(moodCut.mood || guessMood(lastUser));
 
-    const parts = replyItems(moodCut.clean, Number(state.config.burst) || 2);
+    let parts = replyItems(moodCut.clean, Number(state.config.burst) || 2);
+
+    // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
+    // 而不是让他再问一遍。见 askForWords 的说明。
+    if (parts.length && parts.every((it) => it.narr)) {
+      const words = await askForWords({
+        systemPrompt,
+        history,
+        narration: parts.map((it) => it.content).join('；'),
+        signal: ctrl.signal,
+      });
+      parts = [...parts, ...words.map((content) => ({ content, narr: false }))];
+    }
 
     if (!parts.length) {
       hideTyping();
@@ -3252,6 +3324,8 @@ async function speakUp(reason) {
         affectionBase: state.profile.affectionBase,
         relation: state.config.herRelation,
       }),
+      // 主动开口那一轮她也会写旁白，所以这条同样要提醒（别复读上一个动作）
+      narrationVaryBlock(recentNarrations(state.messages)),
       `【现在的情况】
 ${situation}
 
@@ -3275,7 +3349,8 @@ ${situation}
 - 实在没得说，就简单一句"在忙吗""人呢"——也比硬接那句话好
 
 说 1-2 条短消息就行，别一次堆太多。可以带一两个括号旁白（动作/神态），
-它们会单独显示成一个小框，不占你说的条数。`,
+它们会单独显示成一个小框，不占你说的条数 —— 但**别只有旁白**，
+旁白后面一定要有话，最后一条必须是话。`,
     ].join('\n\n');
 
     let full = '';
@@ -3309,6 +3384,16 @@ ${situation}
     if (moodCut.mood) applyMood(moodCut.mood);
 
     let parts = replyItems(moodCut.clean, 2);
+    // 主动开口那一轮同理：只发动作不说话，等于白开口一次
+    if (parts.length && parts.every((it) => it.narr)) {
+      const words = await askForWords({
+        systemPrompt,
+        history,
+        narration: parts.map((it) => it.content).join('；'),
+        signal: ctrl.signal,
+      });
+      parts = [...parts, ...words.map((content) => ({ content, narr: false }))];
+    }
     if (!parts.length) { hideTyping(); return false; }
 
     hideTyping();

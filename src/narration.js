@@ -79,3 +79,48 @@ export function splitNarration(text) {
   pushSpeech(out, src.slice(at));
   return out;
 }
+
+// ---------------------------------------------------------------- 别写重样
+//
+// 用户的第二条要求是"她的旁白可以更灵动，动作也可以更丰富"。
+// 光在提示词里说"别重复"没用 —— 得把它**最近真写过什么**摆回去：
+// 模型看不见自己前几轮写了什么（上下文里虽然有，但没人点名它就会复读）。
+// 这里把最近几条旁白捞出来，提示词里明确列一遍"这几个刚用过，换一个"。
+
+/**
+ * 她最近写过的旁白（去重、从旧到新）。
+ * @param {Array<{role:string,content:string,narr?:boolean}>} msgs
+ * @param {object} [opts]
+ * @param {number} [opts.recentN=80] 只看最近多少条消息
+ * @param {number} [opts.max=8]      最多列几条
+ * @returns {string[]}
+ */
+export function recentNarrations(msgs, { recentN = 80, max = 8 } = {}) {
+  const list = Array.isArray(msgs) ? msgs.slice(-recentN) : [];
+  const seen = new Set();
+  const out = [];
+  for (const m of list) {
+    if (!m?.narr || m.role !== 'assistant') continue;   // 只算**她**写的
+    const t = String(m.content || '').trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out.slice(-max);
+}
+
+/**
+ * 把"最近写过的旁白"拼成提示词里的一段。
+ * 一条都没写过就返回空串（新用户别塞一段空的进提示词）。
+ * @param {string[]} list
+ */
+export function narrationVaryBlock(list = []) {
+  const items = (Array.isArray(list) ? list : []).map((s) => String(s || '').trim()).filter(Boolean);
+  if (!items.length) return '';
+  return `【你最近写过的旁白】（别原样再来一遍）
+${items.map((s) => `- （${s}）`).join('\n')}
+
+同一批动作连着用会显得机械（真人不会每次都"笑""愣住"）。
+这一轮换个**动作或角度**：写点别的正在发生的事 —— 手上的、周围的、你没说出口的。
+不用躲得干干净净，但至少别一模一样地重复。`;
+}

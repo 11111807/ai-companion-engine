@@ -34,6 +34,8 @@ const mkApp = (seed = {}) => {
       ...seed,
     },
     reply: seed.reply || '嗯',
+    // 一串回复：用来测"第一次只发旁白 → 系统补一次请求"（见 [15]）
+    replies: seed.replies || null,
   });
   windows.push(app.dom.window);
   return app;
@@ -383,10 +385,24 @@ console.log('\n[13] 她写的（）旁白 → 单独一个框，画在她那一�
   const ctx = app.lastRequest().messages.filter((m) => m.role === 'assistant');
   check('⭐ 她的旁白进上下文时也套上了（　）', ctx.some((m) => m.content === '（夹了口菜）'),
     ctx.map((m) => m.content).join(' | '));
+
+  // 她刚写过的旁白要被列回提示词里（"更灵动、别复读同一个动作"靠这个）
+  const sys = app.lastRequest().messages.find((m) => m.role === 'system').content;
+  check('⭐ 提示词里列出了她最近写过的旁白',
+    /【你最近写过的旁白】/.test(sys) && /- （夹了口菜）/.test(sys)
+    && /别原样再来一遍/.test(sys),
+    (sys.match(/【你最近写过的旁白】[\s\S]{0,60}/) || [''])[0].replace(/\n/g, ' / '));
+  check('同一句旁白重复出现也只列一条（去重）',
+    (sys.match(/- （夹了口菜）/g) || []).length === 1);
+  check('并且要求换个动作或角度', /换个\*\*动作或角度\*\*/.test(sys));
 }
 
-console.log('\n[14] 她可以只发一个动作，一个字都不说 ...');
+console.log('\n[14] 她只发一个动作、一个字都不说 —— 渲染层兜得住，但提示词禁止这么干 ...');
 {
+  // ⚠️ 这一节测的是**渲染层**：模型万一真的只回了"（举起手里的奶茶）"，
+  //    界面也得把它画成一个正常的左侧旁白框，不能崩、不能多出空气泡。
+  //    —— 但"只发旁白"本身是**用户明确不喜欢的行为**（"不要总是只说旁白，
+  //    然后没有对话，需要我再说一句才能有下文"），所以提示词那边是禁止的。
   const app = mkApp({ reply: '（举起手里的奶茶）' });
   const $ = app.$;
   const before = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
@@ -402,6 +418,83 @@ console.log('\n[14] 她可以只发一个动作，一个字都不说 ...');
   })(), $('#messages').textContent.slice(-40));
   check('没有凭空多出一个空气泡',
     app.$$('#messages .wx-row').length === 3 + 1, String(app.$$('#messages .wx-row').length));
+
+  // 提示词那边：明确禁止"只发旁白"，而且要求最后一条是话
+  const sys = app.lastRequest().messages.find((m) => m.role === 'system').content;
+  check('⭐ 提示词禁止"旁白是这一轮唯一的内容"',
+    /旁白不能是这一轮唯一的内容/.test(sys) && /那不叫聊天/.test(sys));
+  check('⭐ 要求一轮里最后一条必须是话（不能拿旁白收尾）',
+    /最后一条必须是话/.test(sys) && /不能拿旁白收尾/.test(sys));
+  check('⭐ 要求留得下话头（别说完就停住让他再问一句）',
+    /留得下话头/.test(sys) && /聊天就断了/.test(sys));
+  check('旧的"也可以只发一个旁白、一个字都不说"已经删掉',
+    !/一个字都不说/.test(sys));
+}
+
+// ---------------------------------------------------------------- 15) 兜底：只发旁白
+console.log('\n[15] 她只发了一个动作就没了 → 自动把欠的那句话要回来 ...');
+{
+  // 用户实测：他问"几点了"，她回"（抬头看墙上的钟）"就没了，他还得再问一遍。
+  // 提示词那边加了【他在等你的回答】，但"这一轮白聊了"不能只靠提示词兜 ——
+  // 这里测的是代码里的那一层：整轮只有旁白时，自动再要一次"只要台词"。
+  const app = mkApp({ replies: ['（抬头看墙上的钟）', '快九点半了，你怎么还不睡'] });
+  const $ = app.$;
+  const before = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
+  await app.send('几点了');
+
+  const hers = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
+    .slice(before).filter((m) => m.role === 'assistant');
+
+  check('⭐ 补了一次请求（她说的话被要回来了）', app.requests.length === 2,
+    String(app.requests.length));
+  check('⭐ 界面上先旁白、后台词（动作 + 回答）',
+    hers.length === 2 && hers[0].narr === true && hers[1].content === '快九点半了，你怎么还不睡',
+    JSON.stringify(hers));
+  check('补回来的那句不带 narr 标记（是台词）', hers[1]?.narr !== true);
+  check('补的话没有重复那个动作', !/[（(]/.test(hers[1]?.content || ''), hers[1]?.content);
+  check('⭐ 他不用再问第二遍（"几点了"只出现一次）', (() => {
+    const all = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+    return all.filter((m) => m.content === '几点了').length === 1;
+  })(), JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
+    .map((m) => (m.narr ? `旁白:${m.content}` : m.content)).join(' / '));
+  check('她的话紧跟在后面（旁白 + 回答，中间没有他插话）', (() => {
+    const all = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+    return all.at(-1).content === '快九点半了，你怎么还不睡' && all.at(-2).narr === true;
+  })());
+
+  const ask = JSON.stringify(app.lastRequest().messages);
+  check('⭐ 补的请求里带着"你只发了动作，他还在等"这句纠正',
+    /只发了一个动作/.test(ask) && /在等你的回答/.test(ask));
+  check('补的请求把它刚才那个动作也带上了（上下文接得上）',
+    /抬头看墙上的钟/.test(ask));
+  check('补的请求只要一句话（maxTokens 压到 120，不浪费）',
+    app.lastRequest().max_tokens === 120, String(app.lastRequest().max_tokens));
+}
+
+console.log('\n[16] 兜底的兜底：补回来还是旁白就不再纠缠 ...');
+{
+  // 一轮最多补一次 —— 不能因为模型不配合就无限重试
+  const app = mkApp({ replies: ['（又看了一眼钟）', '（把手举到一半又放下）'] });
+  const before = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
+  await app.send('几点了');
+
+  const hers = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
+    .slice(before).filter((m) => m.role === 'assistant');
+  check('⭐ 只补一次，不循环', app.requests.length === 2, String(app.requests.length));
+  check('补回来的还是旁白就认了（没有硬塞一句假回答）',
+    hers.length === 1 && hers[0].narr === true, JSON.stringify(hers));
+  check('界面没崩、旁白正常显示',
+    app.$('#messages .wx-row.narr.in .wx-bubble.narr')?.textContent === '又看了一眼钟');
+}
+
+console.log('\n[17] 正常回复不会多花一次请求 ...');
+{
+  const app = mkApp({ replies: ['好呀', '（这条不该被用到）'] });
+  await app.send('今天好累');
+  check('⭐ 她正常回话时只有一次请求（兜底不额外收费）', app.requests.length === 1,
+    String(app.requests.length));
+  check('回的就是那句正常的话',
+    JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).at(-1).content === '好呀');
 }
 
 // ---------------------------------------------------------------- 收尾

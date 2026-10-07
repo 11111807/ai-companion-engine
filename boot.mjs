@@ -16,12 +16,22 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 /**
  * @param {object} [opts]
  * @param {object} [opts.seed]  预置的 localStorage 内容，例如 { 'xiaoyu.chat.v1': [...] }
- * @param {string} [opts.reply] 模型返回的文本
+ * @param {string} [opts.reply] 模型返回的文本（每次请求都用它）
+ * @param {string[]} [opts.replies] 按顺序返回的一串回复（用超了就一直用最后一条）。
+ *        用来测"第一次回得不好、系统补一次请求"这类多轮交互。
  * @param {string} [opts.dir]   从哪个目录读前端文件（默认源码目录）。
  *                              传部署包路径就能**直接测打包产物**。
  */
 export function bootApp(opts = {}) {
-  const { seed = {}, reply = '嗯嗯', dir = '' } = opts;
+  const { seed = {}, reply = '嗯嗯', replies = null, dir = '' } = opts;
+  // 每来一次 /chat/completions 就取一条；给完了就重复最后一条
+  let call = 0;
+  const nextReply = () => {
+    if (!replies?.length) return reply;
+    const r = replies[Math.min(call, replies.length - 1)];
+    call++;
+    return r;
+  };
   const base = dir ? path.resolve(dir) : root;
   const read = (p) => fs.readFileSync(path.join(base, p), 'utf8');
   const errors = [];
@@ -81,7 +91,8 @@ export function bootApp(opts = {}) {
       let body = null;
       try { body = JSON.parse(o.body); } catch {}
       requests.push({ url: String(url), body });
-      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n`;
+      const content = nextReply();
+      const sse = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
       return {
         ok: true,
         status: 200,

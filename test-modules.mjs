@@ -293,4 +293,35 @@ console.log('\n[6] narration.js —— 她的（）旁白要拆成单独一条 .
   check('空值不炸', narration.splitNarration('').length === 0 && narration.splitNarration(null).length === 0);
 }
 
+// ---------------------------------------------------------------- 7) 别写重样
+console.log('\n[7] narration.js —— 把"最近写过的旁白"捞回去提醒她别重复 ...');
+{
+  const m = (role, content, narr) => ({ role, content, narr });
+  const msgs = [
+    m('assistant', '笑', true),
+    m('user', '抱住', true),          // 我写的，不算
+    m('assistant', '在呀'),           // 台词，不算
+    m('assistant', '把手机扣在桌上', true),
+    m('assistant', '笑', true),       // 重复 → 只留一条
+  ];
+  const recent = narration.recentNarrations(msgs);
+  check('⭐ 只收"她写的旁白"（我的旁白和台词都不算）',
+    JSON.stringify(recent) === JSON.stringify(['笑', '把手机扣在桌上']), JSON.stringify(recent));
+  check('⭐ 重复的只留一条', recent.filter((s) => s === '笑').length === 1);
+
+  const many = Array.from({ length: 30 }, (_, i) => m('assistant', `动作${i}`, true));
+  check('只取最近 max 条', narration.recentNarrations(many, { max: 5 }).length === 5,
+    String(narration.recentNarrations(many, { max: 5 }).length));
+  check('recentN 之外的不看', narration.recentNarrations(many, { recentN: 3 }).length === 3);
+  check('空历史不炸', narration.recentNarrations([]).length === 0
+    && narration.recentNarrations(null).length === 0);
+
+  check('一条都没有时**不输出**那段提示词（别塞空块）',
+    narration.narrationVaryBlock([]) === '' && narration.narrationVaryBlock(null) === '');
+  const block = narration.narrationVaryBlock(recent);
+  check('有内容时列成"- （…）"', /- （笑）/.test(block) && /- （把手机扣在桌上）/.test(block));
+  check('⭐ 明确要求换一个动作/角度', /换个\*\*动作或角度\*\*/.test(block) || /换个/.test(block));
+  check('说明"同一批动作连着用会显得机械"', /连着用会显得机械/.test(block));
+}
+
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);process.exit(fail ? 1 : 0);
