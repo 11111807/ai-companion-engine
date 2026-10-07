@@ -1,8 +1,8 @@
 /**
- * 新拆出来的四个模块的**结构测试**。
+ * 拆出来的独立模块的**结构测试**。
  *
- * 为什么单独一个文件：这一轮把 app.js 里的存储层、记忆系统、搜索、格式化
- * 拆成了独立模块，目标是"纯搬运、行为不变"。行为面由原来那 1000 多项测试兜着
+ * 为什么单独一个文件：把 app.js 里的存储层、记忆系统、搜索、格式化、
+ * 旁白拆分拆成了独立模块，目标是"纯搬运、行为不变"。行为面由原来那 1000 多项测试兜着
  *（它们全都经过 app.js 走完整链路），这个文件只补两件它们测不到的事：
  *
  *   1. 每个模块能**单独**被 import（不依赖 app.js，也不依赖 DOM）
@@ -18,6 +18,7 @@ import * as format from './src/format.js';
 import * as search from './src/search.js';
 import * as storage from './src/storage.js';
 import * as memoryIO from './src/memory-io.js';
+import * as narration from './src/narration.js';
 
 let pass = 0;
 let fail = 0;
@@ -30,10 +31,10 @@ const check = (n, ok, extra = '') => {
 const hasDom = () => typeof document !== 'undefined' || typeof localStorage !== 'undefined';
 
 // ---------------------------------------------------------------- 0) 解耦
-console.log('\n[0] 四个模块能脱离 app.js 和浏览器单独加载 ...');
+console.log('\n[0] 每个模块都能脱离 app.js 和浏览器单独加载 ...');
 {
   check('这个测试跑在 node 里（没有 document / localStorage）', !hasDom());
-  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO })) {
+  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration })) {
     check(`${name}.js 能单独 import`, !!mod && Object.keys(mod).length > 0,
       `${Object.keys(mod).length} 个导出`);
   }
@@ -254,5 +255,42 @@ console.log('\n[4] memory-io.js —— 记忆读写 / 检索 / 导入 ...');
     memoryIO.mergeFacts(into, ['养了只猫', '老家山东']) === 1 && into.facts.length === 2);
 }
 
-console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
-process.exit(fail ? 1 : 0);
+// ---------------------------------------------------------------- 6) narration.js
+console.log('\n[6] narration.js —— 她的（）旁白要拆成单独一条 ...');
+{
+  const one = narration.splitNarration('（夹了口菜）好吃吗？');
+  check('旁白被单独拆出来（内容不带括号）',
+    one.length === 2 && one[0].narr === true && one[0].text === '夹了口菜', JSON.stringify(one));
+  check('剩下的台词原样留着', one[1].narr === false && one[1].text === '好吃吗？');
+
+  const mid = narration.splitNarration('我没事（笑）真的');
+  check('⭐ 夹在句子中间也拆，而且顺序不变（台词 / 旁白 / 台词）',
+    mid.map((s) => `${s.narr ? '旁白' : '台词'}:${s.text}`).join(' | ')
+      === '台词:我没事 | 旁白:笑 | 台词:真的', JSON.stringify(mid));
+
+  check('只发一个动作、一个字都不说也行',
+    narration.splitNarration('（举起手里的奶茶）').length === 1
+    && narration.splitNarration('（举起手里的奶茶）')[0].narr === true);
+  check('半角括号里的中文也算旁白',
+    narration.splitNarration('(愣了一下)你呢').length === 2);
+  check('⭐ 半角括号里的英文 / 颜文字不算旁白（那是台词的一部分）',
+    narration.splitNarration('这个 bug (fix) 了').length === 1
+    && narration.splitNarration('好耶 (๑•̀ㅂ•́)و').length === 1);
+  check('不算旁白时，括号原样留在台词里（一个字都不丢）',
+    narration.splitNarration('看这个 (lol) 好笑')[0].text.includes('(lol)'),
+    JSON.stringify(narration.splitNarration('看这个 (lol) 好笑')));
+  check('空括号不会造出一个空旁白条',
+    narration.splitNarration('喂（）在吗').every((s) => s.text.trim() && !s.narr),
+    JSON.stringify(narration.splitNarration('喂（）在吗')));
+  check('⭐ 不跨行配对（免得把好几条消息都吃进一个括号里）',
+    narration.splitNarration('（他愣住了\n这句话很长）。').length === 1,
+    JSON.stringify(narration.splitNarration('（他愣住了\n这句话很长）。')));
+  check('多条旁白各成一条', narration.splitNarration('（笑）（叹气）你怎么了').length === 3);
+  check('⭐「（空行）」「(换行)」是分段标记，不当旁白（要留给拆分逻辑还原）',
+    narration.splitNarration('甲（空行）乙').every((s) => !s.narr)
+    && narration.splitNarration('甲(换行)乙').every((s) => !s.narr),
+    JSON.stringify(narration.splitNarration('甲（空行）乙')));
+  check('空值不炸', narration.splitNarration('').length === 0 && narration.splitNarration(null).length === 0);
+}
+
+console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);process.exit(fail ? 1 : 0);

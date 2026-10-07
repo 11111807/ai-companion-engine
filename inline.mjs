@@ -75,6 +75,9 @@ const APP_REPLACEMENTS = [
     'const { BIO_MAX_POINTS, parseMemoryBlock, applyMemory: applyMemoryTo, toggleObsession: toggleObsessionIn, parseBioPoints, applyUserBio: applyUserBioTo, summarizeConversation, resetRecallIndex, recallOldMessages: recallOld, recallBlock: recallBlockOf, parseHistoryText: parseHistory, normalizeTimestamps: stampImported, mergeFacts } = __memoryIO;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/search\.js['"];?/,
     'const { SEARCH_MAX_HITS, searchMessages: searchIn, snippetOf } = __search;'],
+  // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
+  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/narration\.js['"];?/,
+    'const { splitNarration } = __narration;'],
   // config.js 只是一行地址常量。内联环境里给它一个空地址，
   // 效果就是"这个部署没配安装包"——和开源版的真实情况一致。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/config\.js['"];?/,
@@ -114,6 +117,7 @@ const EXPORTS = {
     'permanentReason', 'strengthLabel', 'strengthPercent', 'PERMANENT_HITS', 'OBSESSION_EMO',
     'halfLifeDays', 'FORGET_BELOW'],
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
+  narration: ['splitNarration'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
     'fixConfigShape', 'fixProfileShape', 'sanitizeAffection', 'storageUsed', 'historyBytes',
@@ -145,6 +149,7 @@ export function inlineScript(dir = '') {
     zodiac: inlinable(read('src/zodiac.js')),
     emotion: inlinable(read('src/emotion.js')),
     format: inlinable(read('src/format.js')),
+    narration: inlinable(read('src/narration.js')),
     search: inlinable(read('src/search.js')),
     affection: inlinable(read('src/affection.js')),
     relationViews: inlinable(read('src/relation-views.js')),
@@ -184,6 +189,9 @@ export function inlineScript(dir = '') {
       })();
       const __format = (function () { ${src.format}
         return { ${pick(EXPORTS.format)} };
+      })();
+      const __narration = (function () { ${src.narration}
+        return { ${pick(EXPORTS.narration)} };
       })();
       const __search = (function () { ${src.search}
         return { ${pick(EXPORTS.search)} };

@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 #  把 shot.mjs 生成的场景 HTML 渲染成 PNG，方便肉眼看排版。
 #
 #  为什么需要它：jsdom 测不出排版 —— 溢出、重叠、断行、字号、
@@ -11,7 +11,14 @@
 #  换浏览器就改下面这个路径（或者设 SHOT_BROWSER 环境变量）。
 # ============================================================
 
-$ErrorActionPreference = 'Stop'
+# ⚠️ 这两行是踩过坑才加的（和 sync-open.ps1 里同一个坑）：
+#   msedge 每次都会往 stderr 写一堆无害噪音（"QQBrowser user data path not found"…），
+#   而 PowerShell 5.1 会把**原生命令的 stderr** 当成错误 —— 配上 'Stop' 就变成
+#   致命错误，脚本在第一次调用浏览器时直接中断，一张图都出不来，
+#   报的还是"NativeCommandError"这种看着像浏览器坏了的错。
+#   降级成 Continue 之后：真正的失败仍然由下面"PNG 在不在"来判断。
+$PSNativeCommandUseErrorActionPreference = $false
+$ErrorActionPreference = 'Continue'
 
 $BROWSER = $env:SHOT_BROWSER
 if (-not $BROWSER) {

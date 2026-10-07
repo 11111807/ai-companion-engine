@@ -60,7 +60,10 @@ export function countActions(msgs, { recentN = 200 } = {}) {
   const count = new Map();
   for (const m of list) {
     if (m.role !== 'user') continue;          // 只统计**他**做的动作
-    for (const a of extractActions(m.content)) {
+    // 旁白框写进来的那条本身就是动作（"抱住"，不带括号）；
+    // 台词里手打的括号动作（"（抱住）"）也照样认 —— 两条路都要走。
+    const actions = m.narr ? [m.content] : extractActions(m.content);
+    for (const a of actions) {
       const g = groupOf(a);
       if (!g) continue;
       count.set(g, (count.get(g) || 0) + 1);

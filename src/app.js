@@ -68,6 +68,7 @@ import {
   mergeFacts,
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
+import { splitNarration } from './narration.js';
 import { APK_URL } from './config.js';
 
 // APK 环境才有 native.js（网页版部署包里没有这个文件），
@@ -762,6 +763,27 @@ function splitMessages(text, maxBurst = 2) {
   return parts;
 }
 
+/**
+ * 她的回复 → 待发出的条目（台词 / 旁白各成一条）。
+ *
+ * 旁白**不占连发条数**：它是舞台说明，不是她发的消息，
+ * 一轮里带一两个很正常，不该因此把台词挤掉。
+ * 台词照旧受 burst 限制（多了就并进上一条，见 splitMessages）。
+ *
+ * @returns {Array<{content: string, narr: boolean}>}
+ */
+function replyItems(text, maxBurst) {
+  const items = [];
+  let left = Math.max(1, Number(maxBurst) || 2);
+  for (const seg of splitNarration(text)) {
+    if (seg.narr) { items.push({ content: seg.text, narr: true }); continue; }
+    const parts = splitMessages(seg.text, left);
+    left = Math.max(1, left - parts.length);
+    for (const p of parts) items.push({ content: p, narr: false });
+  }
+  return items;
+}
+
 // ---------------------------------------------------------------- 记忆提取
 //
 // 解析和落盘的实际逻辑在 src/memory-io.js（那一块的说明也写在那儿）。
@@ -1317,7 +1339,6 @@ async function respond() {
       persona: personaForPrompt(),
       me: myMe(),
       mood: moodBlock(currentMood()),
-      narration: true,
       affection: affection(),
       affectionBase: state.profile.affectionBase,
       relation: state.config.herRelation,
@@ -1411,7 +1432,7 @@ async function respond() {
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')?.content || '';
     applyMood(moodCut.mood || guessMood(lastUser));
 
-    const parts = splitMessages(moodCut.clean, Number(state.config.burst) || 2);
+    const parts = replyItems(moodCut.clean, Number(state.config.burst) || 2);
 
     if (!parts.length) {
       hideTyping();
@@ -1430,12 +1451,12 @@ async function respond() {
     let spent = 0;
 
     for (let i = 0; i < parts.length; i++) {
-      const piece = parts[i];
+      const { content, narr } = parts[i];
       const isLast = i === parts.length - 1;
 
       showTyping();
       // 打字时长：按字数估，单条 260-900ms
-      let delay = Math.min(900, Math.max(260, piece.length * 42));
+      let delay = Math.min(900, Math.max(260, content.length * 42));
       // 限制总时长
       if (spent + delay > totalBudget) delay = Math.max(120, totalBudget - spent);
       spent += delay;
@@ -1444,16 +1465,18 @@ async function respond() {
 
       const msg = {
         role: 'assistant',
-        content: piece,
+        content,
         ts: now(),
         mid: !isLast, // 连发中的前几条不画尾巴，视觉上是一串
       };
+      // 旁白单独存一条（narr: true）→ 界面把它画成左边那个灰色虚线小框
+      if (narr) msg.narr = true;
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();
       buzz(8);
 
-      if (!isLast) await sleep(Math.min(420, 120 + piece.length * 8));
+      if (!isLast) await sleep(Math.min(420, 120 + content.length * 8));
     }
 
     saveChat();
@@ -3225,7 +3248,6 @@ async function speakUp(reason) {
         persona: personaForPrompt(),
       me: myMe(),
       mood: moodBlock(currentMood()),
-      narration: true,
         affection: affection(),
         affectionBase: state.profile.affectionBase,
         relation: state.config.herRelation,
@@ -3252,7 +3274,8 @@ ${situation}
 - 看到/听到什么好玩的想分享
 - 实在没得说，就简单一句"在忙吗""人呢"——也比硬接那句话好
 
-说 1-2 条短消息就行，别一次堆太多。可以带一个括号旁白（但后面必须有话）。`,
+说 1-2 条短消息就行，别一次堆太多。可以带一两个括号旁白（动作/神态），
+它们会单独显示成一个小框，不占你说的条数。`,
     ].join('\n\n');
 
     let full = '';
@@ -3285,17 +3308,18 @@ ${situation}
     const moodCut = parseMoodBlock(memCut.clean);
     if (moodCut.mood) applyMood(moodCut.mood);
 
-    let parts = splitMessages(moodCut.clean, 2);
+    let parts = replyItems(moodCut.clean, 2);
     if (!parts.length) { hideTyping(); return false; }
 
     hideTyping();
     for (let i = 0; i < parts.length; i++) {
-      const piece = parts[i];
+      const { content, narr } = parts[i];
       const isLast = i === parts.length - 1;
       showTyping();
-      await sleep(Math.min(700, Math.max(240, piece.length * 40)));
+      await sleep(Math.min(700, Math.max(240, content.length * 40)));
       hideTyping();
-      const msg = { role: 'assistant', content: piece, ts: now(), mid: !isLast };
+      const msg = { role: 'assistant', content, ts: now(), mid: !isLast };
+      if (narr) msg.narr = true;
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();

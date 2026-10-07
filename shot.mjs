@@ -170,7 +170,9 @@ const CASES = [
       config: { herRelation: '恋人', personaDone: true },
     },
     setup: (app) => {
-      app.$('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      // ⚠️ 是 #btnOpenMemory2：三个设置页拆开之后，「数据」那一块在
+      //    「这个好友的设置」里，按钮 id 都带了 2（踩过：老 id 早就没了）
+      app.$('#btnOpenMemory2').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
       const s = app.$('#memSearch');
       s.value = '加班';
       s.dispatchEvent(new app.window.Event('input', { bubbles: true }));
@@ -317,6 +319,20 @@ const CASES = [
     setup: () => {},
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    // 她**自己写**的括号旁白：要走一遍真实的回复流程（模型输出 → 拆成气泡），
+    // 所以这里的 reply 是带（）的整段回复，不是预置进聊天记录的。
+    name: '20-her-narration',
+    w: 390, h: 844,
+    reply: '（夹了口菜）还行，你尝尝\n\n（她把盘子往你那边推了推）\n\n有点咸了，下次少放点盐',
+    seed: {
+      chat: [{ role: 'assistant', content: '那我先尝一口', ts: NOW - 60e3 }],
+      profile: { msgCount: 320, mood: { joy: 14 }, moodAt: NOW - 30e3 },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: async (app) => { await app.send('今天这个菜怎么样'); },
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -331,7 +347,7 @@ for (const c of CASES) {
     'xiaoyu.profile.v1': c.seed.profile || {},
     'xiaoyu.config.v1': c.seed.config || {},
   };
-  const app = bootApp({ seed, reply: '好呀 那你早点睡' });
+  const app = bootApp({ seed, reply: c.reply || '好呀 那你早点睡' });
   try {
     await c.setup(app);
     await app.sleep(30);

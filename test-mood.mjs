@@ -349,6 +349,61 @@ console.log('\n[12] 表情面板跟着情绪排 ...');
   check('没有重复', new Set(btns).size === btns.length);
 }
 
+// ---------------------------------------------------------------- 13) 她的旁白
+console.log('\n[13] 她写的（）旁白 → 单独一个框，画在她那一侧 ...');
+{
+  const app = mkApp({ reply: '（夹了口菜）好吃吗？\n你也尝尝' });
+  const $ = app.$;
+  const before = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
+  await app.send('这道菜怎么样');
+
+  const saved = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+  const hers = saved.slice(before).filter((m) => m.role === 'assistant');
+
+  check('⭐ 她的旁白单独存成了一条（assistant + narr）',
+    hers[0]?.narr === true, JSON.stringify(hers.map((m) => (m.narr ? `旁白:${m.content}` : m.content))));
+  check('旁白里是括号里那句话，不带括号', hers[0]?.content === '夹了口菜', hers[0]?.content);
+  check('⭐ 她的台词里不再混着括号',
+    hers.filter((m) => !m.narr).every((m) => !/[（(]/.test(m.content)),
+    hers.filter((m) => !m.narr).map((m) => m.content).join(' / '));
+  check('旁白不占连发条数（三个框：旁白 + 两句台词）', hers.length === 3, String(hers.length));
+
+  check('⭐ 界面上她的旁白在左边（.wx-row.narr.in）', !!$('#messages .wx-row.narr.in'));
+  check('旁白框里就是那句话（灰色虚线小框，没头像）', (() => {
+    const box = $('#messages .wx-row.narr.in');
+    return box.querySelector('.wx-bubble.narr')?.textContent === '夹了口菜'
+      && !box.querySelector('.wx-avatar');
+  })(), $('#messages .wx-row.narr.in')?.textContent);
+  check('她说的话仍然是左边那个普通气泡',
+    app.$$('#messages .wx-row.in:not(.narr) .wx-bubble').at(-1)?.textContent === '你也尝尝',
+    app.$$('#messages .wx-row.in:not(.narr) .wx-bubble').map((b) => b.textContent).join(' / '));
+
+  // 再发一轮：她的旁白回到上下文里时要包上（　），她才知道那是舞台说明
+  await app.send('那你多吃点');
+  const ctx = app.lastRequest().messages.filter((m) => m.role === 'assistant');
+  check('⭐ 她的旁白进上下文时也套上了（　）', ctx.some((m) => m.content === '（夹了口菜）'),
+    ctx.map((m) => m.content).join(' | '));
+}
+
+console.log('\n[14] 她可以只发一个动作，一个字都不说 ...');
+{
+  const app = mkApp({ reply: '（举起手里的奶茶）' });
+  const $ = app.$;
+  const before = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1')).length;
+  await app.send('在干嘛');
+
+  const hers = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
+    .slice(before).filter((m) => m.role === 'assistant');
+  check('存下来只有一条，而且标着 narr', hers.length === 1 && hers[0].narr === true,
+    JSON.stringify(hers));
+  check('界面上就是左边一个旁白框', (() => {
+    const box = $('#messages .wx-row.narr.in');
+    return box?.querySelector('.wx-bubble.narr')?.textContent === '举起手里的奶茶';
+  })(), $('#messages').textContent.slice(-40));
+  check('没有凭空多出一个空气泡',
+    app.$$('#messages .wx-row').length === 3 + 1, String(app.$$('#messages .wx-row').length));
+}
+
 // ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

@@ -16,6 +16,8 @@ const check = (n, ok, extra = '') => {
 
 const u = (content) => ({ role: 'user', content });
 const a = (content) => ({ role: 'assistant', content });
+/** 他写在**旁白输入框**里的那条：存下来不带括号（narr 标记代替了括号） */
+const un = (content) => ({ role: 'user', content, narr: true });
 
 // ---------------------------------------------------------------- 1) 抽动作
 console.log('\n[1] 从他的话里抽括号动作 ...');
@@ -127,6 +129,13 @@ console.log('\n[6] 边界情况 ...');
   check('全是寒暄没有动作时返回空串', habitsBlock([u('在吗'), a('在'), u('嗯')]) === '');
   check('她的动作不算进"他的习惯"',
     habitsBlock([a('（抱住）'), a('（抱住）'), a('（抱住）')]) === '');
+  check('⭐ 旁白输入框写的那条也算他的动作（不带括号）',
+    countActions([un('抱住'), un('抱抱'), un('搂住')]).get('抱住') === 3,
+    [...countActions([un('抱住'), un('抱抱'), un('搂住')]).keys()].join(','));
+  check('⭐ 旁白框 + 台词里手打的括号，两种都算',
+    countActions([un('抱住'), u('（抱住）')]).get('抱住') === 2);
+  check('她的旁白（assistant + narr）仍然不算',
+    countActions([{ role: 'assistant', content: '抱住', narr: true }]).size === 0);
   check('minCount 可调', (() => {
     const msgs = [u('（抱住）'), u('（抱住）')];
     return habitsBlock(msgs, { minCount: 3 }) === '' && habitsBlock(msgs, { minCount: 2 }).length > 0;
