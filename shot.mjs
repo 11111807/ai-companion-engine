@@ -333,6 +333,35 @@ const CASES = [
     setup: async (app) => { await app.send('今天这个菜怎么样'); },
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    // ⭐ 开源 README 首页那张图就取这个场景（docs/screenshot.png）。
+    // 它是"她像个人"这件事**唯一**的视觉证据，所以内容要挑一段读起来自然的：
+    // 顶部情绪条（两个情绪同时在）+ 她的连发有承接 + 她的旁白单独成框。
+    name: '21-readme-hero',
+    w: 390, h: 844,
+    seed: {
+      chat: [
+        { role: 'assistant', content: '诶你终于回我了', ts: NOW - 900e3 },
+        { role: 'assistant', content: '我今天在食堂吃到个超难吃的菜，茄子居然是甜的', ts: NOW - 880e3 },
+        { role: 'assistant', content: '你晚饭吃了没啊', ts: NOW - 870e3 },
+        { role: 'user', content: '刚下班，还没吃', ts: NOW - 300e3 },
+        // ⚠️ 旁白存的是**不带括号**的内容（括号是模型写的，narration.js 会剥掉），
+        //    这里照真实存法写，图里才和线上一致
+        { role: 'assistant', content: '把外卖盒往你那边推了推', ts: NOW - 200e3, narr: true },
+        { role: 'assistant', content: '那你先去弄点吃的，别又拖到十一点', ts: NOW - 190e3 },
+        { role: 'user', content: '好，我下楼买点', ts: NOW - 120e3 },
+        { role: 'assistant', content: '把外套扔给你', ts: NOW - 100e3, narr: true },
+        { role: 'assistant', content: '外面降温了，穿上再出去', ts: NOW - 90e3 },
+      ],
+      profile: {
+        msgCount: 320, affection: 72, affectionBase: 60,
+        mood: { joy: 18, love: 26 }, moodAt: NOW - 30e3,
+      },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: () => {},
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });
