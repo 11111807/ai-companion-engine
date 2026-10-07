@@ -24,6 +24,7 @@ const FILES = [
   'test-persona.mjs',
   'test-profession.mjs',
   'test-friends.mjs',
+  'test-mood.mjs',
   'test-modules.mjs',
   'test-time.mjs',
   'test-memory.mjs',
