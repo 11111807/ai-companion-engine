@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#ededed" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="小雨" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>小雨</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icon.svg" />
+<link rel="icon" href="./icon.svg" />
+<link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+
+<!-- ==================== 聊天页 ==================== -->
+<section class="screen" id="screen-chat">
+
+  <!-- 顶栏 -->
+  <header class="wx-navbar">
+    <button class="wx-back" id="btnBack" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+      <span class="wx-badge" id="unreadBadge" hidden>1</span>
+    </button>
+    <div class="wx-navbar-title">
+      <strong id="navName">小雨</strong>
+      <span class="wx-navbar-sub" id="navSub"></span>
+    </div>
+    <button class="wx-navbar-btn" id="btnMore" aria-label="更多">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- 消息区 -->
+  <div class="wx-messages" id="messages"></div>
+
+  <!-- 「关系好像变了？」提示条。
+       平时不出现；只有他明确说了"做我女朋友吧 / 我们分手吧"这类话时才弹一下。
+       因为设置里若还写着旧关系，下一轮提示词就会把她拉回去。 -->
+  <div class="wx-rel-tip" id="relationTip" hidden>
+    <span class="tx" id="relationTipText">—</span>
+    <button class="go" id="btnRelationTipApply">改</button>
+    <button class="x" id="btnRelationTipClose" aria-label="不用改">✕</button>
+  </div>
+
+  <button class="wx-scroll-bottom" id="btnScrollBottom" hidden aria-label="回到最新">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 5v14M19 12l-7 7-7-7"/>
+    </svg>
+  </button>
+
+  <!-- 底部输入栏 -->
+  <footer class="wx-toolbar">
+    <div class="wx-toolbar-row">
+      <button class="wx-tool-btn" id="btnEmoji" aria-label="表情">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/>
+          <circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/>
+          <path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="wx-input-wrap">
+        <textarea id="input" rows="1" placeholder="" enterkeyhint="send"></textarea>
+      </div>
+      <button class="wx-tool-btn" id="btnPlus" aria-label="更多">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M12 8v8M8 12h8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="wx-send-btn" id="btnSend" hidden>发送</button>
+    </div>
+
+    <!-- 表情面板 -->
+    <div class="wx-panel" id="emojiPanel" hidden>
+      <div class="wx-emoji-grid" id="emojiGrid"></div>
+    </div>
+
+    <!-- 更多面板 -->
+    <div class="wx-panel" id="plusPanel" hidden>
+      <!-- 好感度放在最上面：这是最常瞄一眼的信息（身份 + 温度） -->
+      <div class="wx-aff" id="affPanel">
+        <!-- 关系会变（聊着聊着就在一起了），所以给个两下就能改的入口。
+             它放在这一块的最前面 —— 身份本来就该在温度之前，
+             而且面板只有 50vh 高，放后面会被挤到滚动区外面看不见。 -->
+        <div class="wx-aff-rel-row">
+          <span>你们的关系：<b id="affRelationName">—</b></span>
+          <button class="wx-btn-text" id="btnQuickRelation">改</button>
+        </div>
+        <div class="wx-chips" id="quickRelationChips" hidden></div>
+        <div class="wx-aff-head">
+          <span class="wx-aff-label" id="affLabel">她此刻对你的感觉</span>
+          <strong class="wx-aff-num" id="affNum">—</strong>
+        </div>
+        <div class="wx-aff-bar"><i id="affBar"></i></div>
+        <div class="wx-aff-rel" id="affRel">—</div>
+        <div class="wx-aff-row">
+          <button type="button" data-aff="-5">−5</button>
+          <button type="button" data-aff="-1">−1</button>
+          <button type="button" data-aff="1">+1</button>
+          <button type="button" data-aff="5">+5</button>
+        </div>
+        <div class="wx-aff-note" id="affNote">—</div>
+      </div>
+
+      <!-- 内置时钟：她那边的"现在"由你定，不跟现实世界走 -->
+      <div class="wx-clock">
+        <div class="wx-clock-head">
+          <span class="wx-clock-label">她那边的现在</span>
+          <strong class="wx-clock-now" id="clockNow">—</strong>
+        </div>
+
+        <!-- 想调多少调多少：手机上点开就是系统的滚轮选择器（年 / 月 / 日 / 时 / 分） -->
+        <input class="wx-clock-pick" id="clockPick" type="datetime-local" step="60"
+               aria-label="直接设置她那边的日期和时间" />
+
+        <div class="wx-clock-row">
+          <button type="button" data-clock="-1440">−1 天</button>
+          <button type="button" data-clock="-60">−1 小时</button>
+          <button type="button" data-clock="60">+1 小时</button>
+          <button type="button" data-clock="1440">+1 天</button>
+        </div>
+        <div class="wx-clock-row">
+          <button type="button" data-clock="120">+2 小时</button>
+          <button type="button" data-clock="reset" class="ghost">回到现在</button>
+        </div>
+        <div class="wx-clock-note" id="clockNote">
+          时间是内置的，不跟现实走。看场两小时的电影就点「+2 小时」；
+          想跳到某一天，直接点上面的时间自己选。
+        </div>
+      </div>
+
+      <button class="wx-plus-item" id="btnClearChat">
+        <span class="wx-plus-icon">🧹</span><span>清空聊天</span>
+      </button>
+      <button class="wx-plus-item" id="btnSettings">
+        <span class="wx-plus-icon">⚙️</span><span>设置</span>
+      </button>
+    </div>
+  </footer>
+</section>
+
+<!-- ==================== 她记得的事 ==================== -->
+<section class="screen overlay wx-settings" id="screen-memory">
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseMemory" aria-label="关闭">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong>她记得的事</strong></div>
+    <div style="width:60px"></div>
+  </header>
+
+  <div class="wx-settings-body">
+    <div class="wx-group-title">此刻</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <div class="wx-mem-scene" id="memScene">—</div>
+        <button class="wx-btn-text" id="btnChangeScene">换个场景</button>
+      </div>
+    </div>
+
+    <!-- 搜聊天记录：整页唯一常驻的输入框 -->
+    <div class="wx-search">
+      <span class="wx-search-ico">🔍</span>
+      <input id="memSearch" type="search" placeholder="搜聊天记录：做饭、加班、猫…"
+             autocomplete="off" autocorrect="off" spellcheck="false" />
+      <button class="wx-search-x" id="btnMemSearchClear" hidden aria-label="清空">✕</button>
+    </div>
+    <div class="wx-group" id="memSearchPanel" hidden>
+      <div class="wx-search-info" id="memSearchInfo"></div>
+      <div class="wx-hit-list" id="memSearchHits"></div>
+      <div class="wx-cell-note">点一条就跳到那段聊天。</div>
+    </div>
+
+    <details class="wx-fold" id="foldFacts" open>
+      <summary>
+        <span class="wx-fold-t">关于你（她记住的）</span>
+        <span class="wx-fold-n" id="foldNFacts"></span>
+      </summary>
+      <div class="wx-group">
+        <div class="wx-mem-list" id="memFacts"></div>
+        <div class="wx-mem-add">
+          <input id="inpNewFact" type="text" placeholder="手动加一条，比如「他在杭州做开发」" maxlength="40" />
+          <button class="wx-btn-text" id="btnAddFact">添加</button>
+        </div>
+        <div class="wx-cell-note">
+          右边的标签是<b>记忆强度</b>：按遗忘曲线算的。反复提到的事会越来越牢，
+          说到 7 次以上就是永久记忆；说过一次的小事会慢慢淡掉。
+          你手动加的会一直留着。<br />
+          <b>☆</b> 可以把某条标成<b>执念</b>（紫标签）—— 那类不受遗忘曲线影响，
+          哪怕很多年没提起，她也永远不会忘。情绪特别重的事（生离死别、大病、失业…）
+          她自己也会认出来。
+        </div>
+      </div>
+    </details>
+
+    <details class="wx-fold" id="memFadedWrap" hidden>
+      <summary>
+        <span class="wx-fold-t">她最近淡忘的</span>
+        <span class="wx-fold-n" id="foldNFaded"></span>
+      </summary>
+      <div class="wx-group">
+        <div class="wx-mem-list" id="memFaded"></div>
+        <div class="wx-cell-note">
+          按遗忘曲线自然淡掉的。如果哪条你觉得重要，在上面重新加一遍，她就记住了。
+        </div>
+      </div>
+    </details>
+
+    <details class="wx-fold" id="foldSummary">
+      <summary>
+        <span class="wx-fold-t">聊过的事（更早对话的要点）</span>
+        <span class="wx-fold-n" id="foldNSummary"></span>
+      </summary>
+      <div class="wx-group">
+        <div class="wx-mem-list" id="memSummary"></div>
+        <div class="wx-mem-add">
+          <input id="inpNewSummary" type="text" placeholder="手动加一条，比如「说好周末一起看电影」" maxlength="80" />
+          <button class="wx-btn-text" id="btnAddSummary">添加</button>
+        </div>
+        <div class="wx-cell-note">
+          这里是更早的对话压缩成的要点，她也会读。你觉得她忘了什么，就直接写进来。
+        </div>
+      </div>
+    </details>
+
+    <details class="wx-fold" id="foldRecap">
+      <summary><span class="wx-fold-t">她这次到底读到什么（可自查）</span></summary>
+      <div class="wx-group">
+        <div class="wx-cell between">
+          <span class="wx-cell-label">把她这次要读的记忆原样显示出来</span>
+          <button class="wx-btn-text" id="btnShowRecap">看看</button>
+        </div>
+        <div class="wx-mem-preview" id="memPreview" hidden></div>
+        <div class="wx-cell-note">
+          如果这里没有你期待的内容，她当然不会记得 —— 直接在上面加一条就行。
+        </div>
+      </div>
+    </details>
+
+    <details class="wx-fold" id="foldHistory">
+      <summary>
+        <span class="wx-fold-t">完整聊天记录</span>
+        <span class="wx-fold-n" id="foldNHistory"></span>
+      </summary>
+      <div class="wx-group">
+        <div class="wx-cell between">
+          <span class="wx-cell-label" id="memStats">—</span>
+          <div class="wx-btn-row">
+            <button class="wx-btn-text" id="btnCopyHistory">复制</button>
+            <button class="wx-btn-text" id="btnTxtHistory">存成文件</button>
+          </div>
+        </div>
+        <div class="wx-cell between">
+          <span class="wx-cell-label">导入聊天记录</span>
+          <button class="wx-btn-text" id="btnShowImport">导入</button>
+        </div>
+        <div class="wx-cell-note">
+          完整记录只存在这台手机上。复制出来可以粘给别的 AI，也能导出到别的设备再导入回来。
+        </div>
+      </div>
+
+      <!-- 导入聊天记录 -->
+      <div class="wx-group" id="importPanel" hidden>
+        <div class="wx-cell">
+          <label for="importText">粘贴聊天记录</label>
+          <textarea id="importText" class="wx-import-text" rows="7"
+            placeholder="把导出的聊天记录粘在这里…&#10;&#10;支持这种格式：&#10;[7/14 22:13] 阿哲：今天好累&#10;[7/14 22:13] 小雨：怎么啦，跟我说说"></textarea>
+        </div>
+        <div class="wx-cell-note">
+          会自动识别「她记得关于你的事」那部分并一起导入。<br />
+          同一人连续发的多条会合并成一条，避免看起来像刷屏。
+        </div>
+        <div class="wx-cell between">
+          <span class="wx-cell-label">导入方式</span>
+          <div class="wx-seg" id="segImport">
+            <button data-v="merge" class="on">追加</button>
+            <button data-v="replace">替换</button>
+          </div>
+        </div>
+        <div class="wx-cell-cell">
+          <button class="wx-btn-primary" id="btnDoImport">开始导入</button>
+        </div>
+        <div class="wx-test-result" id="importResult" hidden></div>
+      </div>
+    </details>
+
+    <details class="wx-fold" id="foldDanger">
+      <summary><span class="wx-fold-t">危险操作</span></summary>
+      <div class="wx-group">
+        <div class="wx-cell between">
+          <span class="wx-cell-label">清空要点（保留聊天记录）</span>
+          <button class="wx-btn-text danger" id="btnClearSummary">清空</button>
+        </div>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ==================== 开始之前（人设） ==================== -->
+<section class="screen overlay wx-settings" id="screen-persona">
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnClosePersona" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong>开始之前</strong></div>
+    <div style="width:60px"></div>
+  </header>
+
+  <div class="wx-settings-body">
+    <div class="wx-setup" id="personaIntro">
+      <strong>先把她定下来</strong>
+      <span>只在第一次设一遍，之后随时能改。聊天记录和她记得的事都不会动。</span>
+    </div>
+
+    <div class="wx-group-title">叫什么</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="perName">名字</label>
+        <input id="perName" type="text" maxlength="8" placeholder="小雨" autocomplete="off" />
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">头像 <span class="wx-opt">（可以不选）</span></span>
+        <div class="wx-avatar-pick">
+          <span class="cur" id="perAvatarPreview">🌧️</span>
+          <button class="wx-btn-text" id="btnPerAvatar">更换</button>
+        </div>
+      </div>
+      <div class="wx-chips wx-chips-pad" id="perAvatarList" hidden></div>
+    </div>
+
+    <div class="wx-group-title">她是谁</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">性别</span>
+        <div class="wx-seg" id="segGender">
+          <button data-v="f" class="on">她</button>
+          <button data-v="m">他</button>
+        </div>
+      </div>
+      <div class="wx-cell">
+        <label for="perAge">年龄</label>
+        <input id="perAge" type="number" min="14" max="80" placeholder="20" />
+      </div>
+      <div class="wx-cell">
+        <label for="perJob">职业 / 身份</label>
+        <input id="perJob" type="text" maxlength="20" placeholder="大二学生、设计师、咖啡店店员…" />
+        <div class="wx-cell-note">
+          填了之后，她懂的就会是这一行的东西 —— 一个 20 岁的设计生不会张口就是"我当年带团队做全案"。
+        </div>
+      </div>
+      <div class="wx-cell">
+        <label for="perUserJob">你的职业 / 专业</label>
+        <input id="perUserJob" type="text" maxlength="20" placeholder="程序员、会计、临床医学、自由职业…" />
+        <div class="wx-chips" id="chipsUserJob"></div>
+        <div class="wx-cell-note">
+          同行的话你俩能聊到一块去；不同行她就只聊自己领域里的日常，不硬接你的专业 ——
+          会说"这我不懂"，但不会拿这一句把你堵回去。
+        </div>
+      </div>
+      <div class="wx-cell">
+        <label for="perRelation">她和你是什么关系</label>
+        <input id="perRelation" type="text" maxlength="12" placeholder="同学、同事、网友、邻居…" />
+        <div class="wx-chips" id="chipsRelation"></div>
+      </div>
+      <div class="wx-cell">
+        <label for="perBirthday">生日</label>
+        <input id="perBirthday" type="text" maxlength="12" placeholder="月-日，比如 3-21" autocomplete="off" />
+        <div class="wx-cell-note" id="perSignNote">
+          填了生日会自动推出星座，给她一点点底色（只是参考，不会全按星座演）。
+        </div>
+      </div>
+    </div>
+
+    <div class="wx-group-title">性格（最多挑 4 个）</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <div class="wx-chips" id="chipsTraits"></div>
+      </div>
+      <div class="wx-cell">
+        <label for="perTraitNote">再补一句你自己的</label>
+        <input id="perTraitNote" type="text" maxlength="40" placeholder="嘴上凶，其实特别怕他难过" />
+      </div>
+      <div class="wx-cell-note">
+        性格比星座重要得多。她不会每句都演一遍——心情不好、累了的时候表现得不一样，才像真人。
+      </div>
+    </div>
+
+    <div class="wx-group-title">初始环境</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="perScene">刚开始聊的时候，她在哪、在干嘛</label>
+        <input id="perScene" type="text" maxlength="60" placeholder="晚上在宿舍，刚洗完澡，头发还没干" />
+        <div class="wx-chips" id="chipsScene"></div>
+      </div>
+      <div class="wx-cell-note">
+        不填就按时间自动安排。填了她就从这里开始，之后随时间自然推移。
+      </div>
+    </div>
+
+    <div class="wx-group-title">她一开始对你的好感度</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <div class="wx-chips" id="chipsAff"></div>
+        <div class="wx-aff-bar big"><i id="perAffBar"></i></div>
+        <div class="wx-cell-note" id="perAffNote">好感度决定她对你的态度：生分会客气、有距离；很喜欢会黏人、会说想你。</div>
+      </div>
+      <div class="wx-cell-note">
+        这一项会自动跟着你选的性格调整，你也可以自己改。聊天之后它还会慢慢变。
+      </div>
+    </div>
+
+    <div class="wx-group-title">你（他）的大致生平 <span class="wx-opt">（可选）</span></div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="perBio">她一开始就该知道的事</label>
+        <textarea id="perBio" class="wx-import-text" rows="5"
+          placeholder="一行一条，或者用「；」隔开。比如：&#10;27 岁，在杭州做开发&#10;老家山东，有个妹妹&#10;养了只猫叫豆豆&#10;最近在准备考试，压力有点大"></textarea>
+      </div>
+      <div class="wx-cell-note" id="perBioNote">
+        这里写的会拆成一条条要点，<b>永久记住</b>，不会随时间淡忘。
+        之后还能在「她记得的事 → 关于你」里自己加删。改动这里再点下面的按钮会按新的重写一遍。
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label" id="perBioCount">还没写</span>
+        <button class="wx-btn-text" id="btnBioPreview">看看拆成几条</button>
+      </div>
+      <div class="wx-mem-list" id="perBioPreview" hidden></div>
+    </div>
+
+    <div class="wx-group" style="border-top:none">
+      <div class="wx-cell-cell">
+        <button class="wx-btn-primary" id="btnPersonaStart">开始聊天</button>
+      </div>
+      <div class="wx-cell-cell">
+        <button class="wx-btn-text" id="btnPersonaReset">恢复默认（小雨）</button>
+      </div>
+    </div>
+
+    <div class="wx-settings-tip">
+      这些设定会直接写进她的"人格提示词"，改名、换头像、换性格都立刻生效。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 设置页 ==================== -->
+<section class="screen overlay wx-settings" id="screen-settings">
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseSettings" aria-label="关闭">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong>设置</strong></div>
+    <div style="width:60px"></div>
+  </header>
+
+  <div class="wx-settings-body">
+    <div class="wx-setup" id="setupBanner" hidden>
+      <strong>还差一步</strong>
+      <span>填一个 API Key 才能开始聊</span>
+    </div>
+
+    <div class="wx-group-title">模型</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="inpProvider">用哪家的模型</label>
+        <select id="inpProvider"></select>
+      </div>
+      <div class="wx-provider-hint" id="providerHint"></div>
+
+      <!-- 手机本地模型管理（只在 APK 里显示） -->
+      <div class="wx-native-panel" id="nativePanel" hidden>
+        <div class="wx-native-status" id="nativeStatus">—</div>
+        <div class="wx-native-list" id="nativeModels"></div>
+        <div class="wx-native-progress" id="nativeProgress" hidden>
+          <div class="wx-native-bar"><i id="nativeBar"></i></div>
+          <div class="wx-native-progress-text" id="nativeProgressText">准备下载…</div>
+        </div>
+        <button class="wx-btn-text" id="btnScanModels" style="margin-top:12px">📂 扫描手机里已有的模型</button>
+        <button class="wx-btn-primary" id="btnSpeedTest" style="margin-top:12px">⚡ 测速（看每秒能生成多少字）</button>
+        <pre class="wx-native-log" id="speedLog" hidden></pre>
+        <button class="wx-btn-text" id="btnSelfTest" style="margin-top:12px">🔍 运行自检（排查问题用）</button>
+        <pre class="wx-native-log" id="selfTestLog" hidden></pre>
+      </div>
+
+      <div class="wx-cell">
+        <label for="inpKey">API Key</label>
+        <input id="inpKey" type="password" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <a class="wx-signup-link" id="signupLink" href="#" target="_blank" rel="noopener">还没有 Key？点这里去申请 →</a>
+      </div>
+
+      <div class="wx-cell">
+        <label for="inpModel">模型</label>
+        <select id="inpModel"></select>
+      </div>
+
+      <details class="wx-advanced">
+        <summary>高级（一般不用改）</summary>
+        <div class="wx-cell">
+          <label for="inpEndpoint">接口地址</label>
+          <input id="inpEndpoint" type="url" autocapitalize="off" spellcheck="false" />
+        </div>
+      </details>
+
+      <div class="wx-cell-cell">
+        <button class="wx-btn-primary" id="btnTest">测试连接</button>
+      </div>
+      <div class="wx-test-result" id="testResult" hidden></div>
+      <div class="wx-cell-note">Key 只存在这台手机上，直接发给模型服务商，不经过任何第三方服务器。</div>
+    </div>
+
+    <div class="wx-group-title">你是</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="inpUserName">你的名字</label>
+        <input id="inpUserName" type="text" placeholder="她怎么称呼你" maxlength="12" />
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">你的头像</span>
+        <div class="wx-avatar-pick">
+          <span class="cur" id="myAvatarPreview">我</span>
+          <button class="wx-btn-text" data-pick-avatar="me">更换</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        就是聊天里右边那个头像。
+      </div>
+    </div>
+
+    <div class="wx-group-title">她的样子</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="inpHerName">她的名字</label>
+        <input id="inpHerName" type="text" placeholder="小雨" maxlength="8" />
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">她的头像</span>
+        <div class="wx-avatar-pick">
+          <span class="cur" id="herAvatarPreview">🌧️</span>
+          <button class="wx-btn-text" data-pick-avatar="her">更换</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        改完立即生效。名字和头像只存在这台手机上。
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">她的人设（性格 / 年龄 / 职业 / 关系 / 好感度）</span>
+        <button class="wx-btn-text" id="btnOpenPersona">重新设定</button>
+      </div>
+    </div>
+
+    <!-- 头像选择面板（「你」和「她」共用） -->
+    <div class="wx-group" id="avatarPanel" hidden>
+      <div class="wx-cell">
+        <label id="avatarPanelTitle">给她选一个头像</label>
+        <div class="wx-emoji-pick" id="avatarEmojiList"></div>
+      </div>
+      <div class="wx-cell-cell">
+        <button class="wx-btn-primary" id="btnUploadAvatar">上传自己的图片</button>
+        <input type="file" id="avatarFile" accept="image/*" hidden />
+      </div>
+      <div class="wx-cell-cell">
+        <button class="wx-btn-text" id="btnResetAvatar">恢复默认</button>
+      </div>
+    </div>
+
+    <div class="wx-group-title">她怎么回</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">回复长度</span>
+        <div class="wx-seg" id="segLen">
+          <button data-v="120">很短</button>
+          <button data-v="250" class="on">适中</button>
+          <button data-v="500">长一点</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">连发条数</span>
+        <div class="wx-seg" id="segBurst">
+          <button data-v="1">一条</button>
+          <button data-v="2">正常</button>
+          <button data-v="3" class="on">话痨</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">活泼程度</span>
+        <div class="wx-seg" id="segTemp">
+          <button data-v="0.7">安静</button>
+          <button data-v="1.0" class="on">正常</button>
+          <button data-v="1.3">很跳</button>
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">深度思考</span>
+        <div class="wx-seg" id="segThink">
+          <button data-v="0" class="on">关（快）</button>
+          <button data-v="1">开（慢）</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        开着她会先在心里想一遍再开口，记人记事更准，但每次要多等几秒、也稍贵一点。想让她更好记住你们的对话，就开上。仅对 DeepSeek 官方生效。
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">主动找你说话</span>
+        <div class="wx-seg" id="segSpeak">
+          <button data-v="1" class="on">开</button>
+          <button data-v="0">关</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        开着的话，你打开聊天页却半天不说话、或者从后台切回来，她会主动起个话头（接着上文聊、或者说她自己的事），而不是干等你开口。一次最多主动两次，说完就安静。
+      </div>
+    </div>
+
+    <div class="wx-group-title">数据</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label" id="dataInfo">—</span>
+        <button class="wx-btn-text" id="btnOpenMemory">她记得的事</button>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">全部清除</span>
+        <button class="wx-btn-text danger" id="btnWipe">清除</button>
+      </div>
+      <div class="wx-cell-note">
+        聊天记录只保存在这台手机上。她记得你说过的话，也是靠这份记录。
+      </div>
+    </div>
+
+    <!-- 安卓版入口：以前是聊天页顶部的大横幅，太抢眼，挪到这里 -->
+    <div class="wx-group" id="apkEntry">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">手机离线版（安卓 App）</span>
+        <button class="wx-btn-text" id="btnDownloadBar">了解</button>
+      </div>
+      <div class="wx-cell-note">
+        网页版要联网、要走 API；装成 App 之后可以<b>把模型放在手机里跑</b>，
+        断网也能聊，不花一分钱。不想装就忽略这一条。
+      </div>
+    </div>
+
+    <div class="wx-settings-tip">
+      把本页「添加到主屏幕」，就能像 App 一样打开。<br />
+      页面本身离线也能打开，聊天需要联网。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 底部操作菜单 ==================== -->
+<div class="wx-mask" id="mask">
+  <div class="wx-sheet" id="actionSheet">
+    <button data-act="memory">🧠 她记得的事</button>
+    <button data-act="download">📱 下载安卓版（可离线）</button>
+    <button data-act="restart">🔄 重新开始对话</button>
+    <button data-act="clearHistory">🧹 清空聊天记录</button>
+    <button data-act="forget">🧽 让她忘掉记住的事</button>
+    <button data-act="settings">⚙️ 设置</button>
+    <button data-act="cancel" class="cancel">取消</button>
+  </div>
+</div>
+
+<div class="wx-toast" id="toast" hidden></div>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

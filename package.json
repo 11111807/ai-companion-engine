@@ -1,0 +1,17 @@
+{
+  "name": "ai-companion-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI 陪伴引擎参考实现 · 纯静态、零构建、无后端",
+  "type": "module",
+  "scripts": {
+    "dev": "node serve.mjs",
+    "test": "node test-app.mjs",
+    "test:all": "node test-all.mjs",
+    "cc": "node complexity.mjs",
+    "shot": "node shot.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^28.0.0"
+  }
+}

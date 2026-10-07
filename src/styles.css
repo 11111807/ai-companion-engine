@@ -1,0 +1,1370 @@
+/* ============================================================
+   微信风格样式
+   ============================================================ */
+
+:root {
+  --wx-nav: #ededed;
+  --wx-nav-border: #d6d6d6;
+  --wx-bg: #f5f5f5;
+  --wx-bubble-in: #ffffff;
+  --wx-bubble-out: #95ec69;
+  --wx-text: #191919;
+  --wx-text-dim: #888888;
+  --wx-text-time: #b2b2b2;
+  --wx-green: #07c160;
+  --wx-line: #e5e5e5;
+  --wx-danger: #fa5151;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--wx-bg);
+  color: var(--wx-text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 17px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* 只在桌面端限制宽度，手机上铺满 */
+body { background: var(--wx-bg); }
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wx-bg);
+  z-index: 1;
+}
+.screen.overlay {
+  z-index: 3;
+  transform: translateX(100%);
+  transition: transform .26s cubic-bezier(.32, .72, 0, 1), visibility .26s;
+  visibility: hidden;
+}
+.screen.overlay.show { transform: translateX(0); visibility: visible; }
+
+/* 覆盖层的叠放顺序。
+ *
+ * #screen-settings 在 index.html 里排在最后，所有覆盖层又都是 z-index: 3 ——
+ * 所以光靠 DOM 顺序，设置页会**永远压在最上面**。
+ * 从设置里点「她的人设」「她记得的事」，页面其实打开了，
+ * 只是被设置页盖住：看着像"点了没反应"，得先按一次返回才看得到。
+ *
+ * 这两页本来就是"从设置里钻出来"的，所以给它们更高的层级。
+ * （它们彼此不会同时打开，用同一个值就够。）
+ */
+#screen-memory,
+#screen-persona { z-index: 4; }
+
+/* ---------------- 顶栏 ---------------- */
+
+.wx-navbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: calc(var(--safe-top) + 48px);
+  padding: var(--safe-top) 4px 0;
+  background: var(--wx-nav);
+  border-bottom: 1px solid var(--wx-nav-border);
+  position: relative;
+  z-index: 6;
+}
+.wx-navbar.light { background: var(--wx-nav); }
+
+.wx-back {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: #191919;
+  cursor: pointer;
+  position: relative;
+}
+.wx-back svg { width: 24px; height: 24px; }
+.wx-back:active { opacity: .5; }
+
+.wx-badge {
+  position: absolute;
+  top: 6px;
+  left: 26px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--wx-danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.wx-navbar-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.wx-navbar-title strong {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wx-navbar-sub {
+  font-size: 12px;
+  color: var(--wx-text-dim);
+  height: 14px;
+  line-height: 14px;
+  opacity: 0;
+  transition: opacity .2s;
+}
+.wx-navbar-sub.on { opacity: 1; }
+
+.wx-navbar-btn {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: #191919;
+  cursor: pointer;
+}
+.wx-navbar-btn svg { width: 23px; height: 23px; }
+.wx-navbar-btn:active { opacity: .5; }
+
+/* ---------------- 消息区 ---------------- */
+
+.wx-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 0 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 时间分隔 */
+.wx-time {
+  align-self: center;
+  margin: 14px 0 8px;
+  font-size: 12.5px;
+  color: var(--wx-text-time);
+  background: rgba(0, 0, 0, .06);
+  border-radius: 4px;
+  padding: 3px 9px;
+}
+
+/* 一行消息 = 头像 + 气泡 */
+.wx-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 5px 12px;
+  gap: 10px;
+  animation: wxIn .18s ease-out;
+  max-width: 100%;
+}
+@keyframes wxIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+
+/* 从搜索结果跳过来时让那一条闪一下，否则满屏气泡里根本找不到 */
+@keyframes wxFlash {
+  0%, 100% { background: transparent; }
+  22%, 70% { background: #fff6d6; }
+}
+.wx-row.flash {
+  animation: wxFlash 1.5s ease-in-out;
+  border-radius: 10px;
+}
+
+.wx-row.out { flex-direction: row-reverse; }
+
+/* 头像 */
+.wx-avatar {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: .5px;
+  user-select: none;
+  overflow: hidden;
+}
+.wx-avatar.her { background: linear-gradient(135deg, #ffb3c6 0%, #ff8fab 100%); }
+.wx-avatar.me { background: linear-gradient(135deg, #7aa8ff 0%, #5b7cfa 100%); }
+
+/* 气泡 */
+.wx-bubble {
+  position: relative;
+  max-width: calc(100% - 130px);
+  padding: 9px 13px;
+  border-radius: 6px;
+  font-size: 16.5px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  animation: bubbleIn .2s cubic-bezier(.2,.9,.3,1.1);
+}
+@keyframes bubbleIn { from { transform: scale(.94); opacity: .6 } to { transform: none; opacity: 1 } }
+
+/* 接收（她的）白色气泡，尾巴在左 */
+.wx-row.in .wx-bubble {
+  background: var(--wx-bubble-in);
+  color: var(--wx-text);
+}
+.wx-row.in .wx-bubble::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 12px;
+  width: 0; height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 6px solid var(--wx-bubble-in);
+}
+
+/* 发送（我的）绿色气泡，尾巴在右 */
+.wx-row.out .wx-bubble {
+  background: var(--wx-bubble-out);
+  color: var(--wx-text);
+}
+.wx-row.out .wx-bubble::before {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 12px;
+  width: 0; height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 6px solid var(--wx-bubble-out);
+}
+
+/* 连续消息：中间的气泡不带尾巴，显得是"一串" */
+.wx-row.mid .wx-bubble::before { display: none; }
+
+/* 语音/表情类的大气泡 */
+.wx-bubble.emoji-only {
+  background: none !important;
+  padding: 2px 4px;
+  font-size: 40px;
+  line-height: 1.1;
+}
+.wx-bubble.emoji-only::before { display: none !important; }
+
+/* 错误提示 */
+.wx-error {
+  align-self: center;
+  margin: 8px 20px;
+  padding: 8px 14px;
+  background: rgba(250, 81, 81, .09);
+  border-radius: 6px;
+  color: #c33;
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+/* 系统提示（小灰字） */
+.wx-sys {
+  align-self: center;
+  margin: 10px 20px;
+  font-size: 12.5px;
+  color: var(--wx-text-time);
+  text-align: center;
+}
+
+/* 正在输入 */
+.wx-typing { display: inline-flex; gap: 4px; align-items: center; height: 22px; }
+.wx-typing i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #b8b8b8;
+  animation: wxBounce 1.2s infinite;
+}
+.wx-typing i:nth-child(2) { animation-delay: .15s; }
+.wx-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes wxBounce { 0%,60%,100% { transform: translateY(0); opacity: .45 } 30% { transform: translateY(-5px); opacity: 1 } }
+
+/* 回到最新按钮 */
+.wx-scroll-bottom {
+  position: absolute;
+  right: 16px;
+  bottom: calc(var(--safe-bottom) + 66px);
+  width: 38px; height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .96);
+  color: #666;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .14);
+  z-index: 4;
+  cursor: pointer;
+}
+.wx-scroll-bottom svg { width: 19px; height: 19px; }
+
+/* ---------------- 底部输入栏 ---------------- */
+
+.wx-toolbar {
+  flex: 0 0 auto;
+  background: var(--wx-nav);
+  border-top: 1px solid var(--wx-nav-border);
+  padding-bottom: var(--safe-bottom);
+}
+
+.wx-toolbar-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  padding: 7px 8px;
+}
+
+.wx-tool-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 3px;
+  border: none;
+  background: none;
+  color: #444;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.wx-tool-btn svg { width: 26px; height: 26px; }
+.wx-tool-btn:active { opacity: .5; }
+.wx-tool-btn.off { opacity: .3; }
+
+.wx-input-wrap {
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+  border-radius: 5px;
+  padding: 6px 10px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+}
+#input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: none;
+  font-family: inherit;
+  font-size: 16.5px; /* 16px+ 防 iOS 缩放 */
+  line-height: 1.4;
+  color: var(--wx-text);
+  resize: none;
+  max-height: 100px;
+  padding: 0;
+}
+#input::placeholder { color: #b2b2b2; }
+
+.wx-send-btn {
+  flex: 0 0 auto;
+  margin-bottom: 3px;
+  padding: 0 14px;
+  height: 32px;
+  border: none;
+  border-radius: 4px;
+  background: var(--wx-green);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wx-send-btn:active { background: #06ad56; }
+
+/* 面板 */
+.wx-panel {
+  border-top: 1px solid var(--wx-line);
+  background: #f7f7f7;
+  padding: 10px 12px calc(10px + var(--safe-bottom));
+  /* 42vh 时「好感度 + 关系」会被挤到滚动区外面（实测），放到 50vh */
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.wx-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.wx-emoji-grid button {
+  border: none;
+  background: none;
+  font-size: 26px;
+  line-height: 1;
+  padding: 7px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wx-emoji-grid button:active { background: #e6e6e6; }
+
+.wx-plus-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+}
+.wx-plus-icon {
+  width: 54px; height: 54px;
+  border-radius: 12px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+}
+
+/* ---------------- 设置页 ---------------- */
+
+.wx-settings { background: var(--wx-bg); }
+.wx-settings-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--safe-bottom) + 30px);
+}
+
+.wx-setup {
+  margin: 14px 12px;
+  padding: 14px;
+  background: #fff3cd;
+  border: 1px solid #ffe08a;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wx-setup strong { font-size: 15px; }
+.wx-setup span { font-size: 13px; color: #8a6d3b; }
+
+.wx-group-title {
+  font-size: 13.5px;
+  color: var(--wx-text-dim);
+  padding: 22px 16px 8px;
+}
+
+.wx-group {
+  background: #fff;
+  border-top: 1px solid var(--wx-line);
+  border-bottom: 1px solid var(--wx-line);
+}
+
+.wx-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-cell:last-child { border-bottom: none; }
+.wx-cell.between {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wx-cell label {
+  font-size: 14px;
+  color: #333;
+}
+.wx-cell-label { font-size: 16px; color: var(--wx-text); }
+
+.wx-cell input,
+.wx-cell select {
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-family: inherit;
+  font-size: 16.5px;
+  color: var(--wx-text);
+}
+.wx-cell select { -webkit-appearance: none; appearance: none; }
+.wx-cell input::placeholder { color: #c0c0c0; }
+
+.wx-cell-note {
+  padding: 10px 16px 14px;
+  font-size: 12.5px;
+  color: var(--wx-text-dim);
+  line-height: 1.6;
+  border-top: 1px solid var(--wx-line);
+}
+
+/* 服务商说明条 */
+.wx-provider-hint {
+  padding: 9px 16px 11px;
+  font-size: 12.5px;
+  color: #8a6d3b;
+  background: #fffaf0;
+  border-bottom: 1px solid var(--wx-line);
+  line-height: 1.6;
+}
+
+/* 去申请 key 的链接 */
+.wx-signup-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: var(--wx-green);
+  text-decoration: none;
+}
+.wx-signup-link:active { opacity: .6; }
+
+/* ---------------- 手机本地模型面板 ---------------- */
+
+.wx-native-panel {
+  padding: 12px 16px 14px;
+  background: #f0f9f2;
+  border-bottom: 1px solid var(--wx-line);
+}
+
+.wx-native-status {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #17883f;
+  margin-bottom: 10px;
+}
+
+.wx-native-list { display: flex; flex-direction: column; gap: 9px; }
+
+.wx-native-item {
+  background: #fff;
+  border: 1px solid var(--wx-line);
+  border-radius: 8px;
+  padding: 11px 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.wx-native-item .info { flex: 1; min-width: 0; }
+.wx-native-item .nm { font-size: 14.5px; font-weight: 550; }
+.wx-native-item .sz { font-size: 12px; color: var(--wx-text-dim); margin-top: 2px; }
+.wx-native-item .nt { font-size: 12px; color: #8a6d3b; margin-top: 3px; line-height: 1.5; }
+.wx-native-item .act {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  background: var(--wx-green);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wx-native-item .act:active { opacity: .8; }
+.wx-native-item .act.ghost { background: #f0f0f0; color: #555; }
+.wx-native-item.current { border-color: var(--wx-green); }
+.wx-native-item .badge {
+  font-size: 11.5px;
+  color: #fff;
+  background: var(--wx-green);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: 6px;
+}
+
+.wx-native-progress { margin-top: 12px; }
+.wx-native-bar {
+  height: 6px;
+  background: #dfe6e1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.wx-native-bar i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--wx-green);
+  transition: width .3s;
+}
+.wx-native-progress-text {
+  font-size: 12.5px;
+  color: var(--wx-text-dim);
+  margin-top: 6px;
+}
+
+.wx-native-log {
+  margin: 10px 0 0;
+  padding: 11px 12px;
+  background: #1b1d36;
+  color: #d8ffe4;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* 高级折叠区 */
+.wx-advanced {
+  border-top: 1px solid var(--wx-line);
+}
+.wx-advanced summary {
+  padding: 13px 16px;
+  font-size: 14px;
+  color: var(--wx-text-dim);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.wx-advanced summary::-webkit-details-marker { display: none; }
+.wx-advanced summary::after {
+  content: '›';
+  float: right;
+  transform: rotate(90deg);
+  transition: transform .2s;
+  font-size: 18px;
+  line-height: 1;
+}
+.wx-advanced[open] summary::after { transform: rotate(-90deg); }
+.wx-advanced .wx-cell { border-top: 1px solid var(--wx-line); }
+
+.wx-cell-cell { padding: 12px 16px; border-top: 1px solid var(--wx-line); }
+
+.wx-btn-primary {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--wx-green);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+.wx-btn-primary:active { background: #06ad56; }
+.wx-btn-primary:disabled { opacity: .55; }
+
+.wx-btn-text {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--wx-green);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.wx-btn-text.danger { color: var(--wx-danger); }
+
+.wx-test-result {
+  margin: 0 16px 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.wx-test-result.ok { background: #e8f8ee; color: #17883f; }
+.wx-test-result.bad { background: #fdecec; color: #c33; }
+
+.wx-seg {
+  display: flex;
+  background: #f0f0f0;
+  border-radius: 6px;
+  padding: 2px;
+  flex: 0 0 auto;
+}
+.wx-seg button {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: #666;
+  padding: 6px 11px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wx-seg button.on { background: var(--wx-green); color: #fff; }
+
+.wx-settings-tip {
+  padding: 20px 16px;
+  font-size: 12.5px;
+  color: var(--wx-text-dim);
+  line-height: 1.8;
+}
+
+/* ---------------- 她记得的事 ---------------- */
+
+.wx-mem-scene {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--wx-text);
+}
+
+.wx-mem-list { padding: 4px 0; }
+
+.wx-mem-item {
+  padding: 12px 16px;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--wx-text);
+  border-bottom: 1px solid var(--wx-line);
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.wx-mem-item:last-child { border-bottom: none; }
+.wx-mem-item .dot {
+  flex: 0 0 auto;
+  color: var(--wx-green);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.wx-mem-item.dim { color: var(--wx-text-dim); font-size: 13.5px; }
+.wx-mem-item.dim .dot { color: var(--wx-text-time); }
+.wx-mem-item .tx { flex: 1 1 auto; word-break: break-word; }
+/* 记忆强度标签（按遗忘曲线算的） */
+.wx-mem-strength {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f0f0f0;
+  color: var(--wx-text-dim);
+  margin-top: 2px;
+}
+.wx-mem-strength.s3 { background: #d6f5e3; color: #0a8f4d; }   /* 清楚 / 很牢 */
+.wx-mem-strength.s2 { background: #e8f3ff; color: #2678c9; }   /* 还行 */
+.wx-mem-strength.s1 { background: #fff4d6; color: #a5730a; }   /* 有点模糊 */
+.wx-mem-strength.s0 { background: #ffe9e9; color: #c0392b; }   /* 快忘了 */
+/* 执念：不参与遗忘曲线，用紫色区分出来 */
+.wx-mem-strength.obs { background: #efe4ff; color: #7a3fd0; }
+/* ☆/★ 手动标执念 */
+.wx-mem-item .wx-mem-star {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--wx-text-time);
+  font-size: 15px;
+  line-height: 1;
+  padding: 3px 2px 3px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.wx-mem-item .wx-mem-star.on { color: #7a3fd0; }
+.wx-mem-item .wx-mem-star:active { background: #f0f0f0; }
+.wx-mem-item .wx-mem-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--wx-text-time);
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 2px 3px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.wx-mem-item .wx-mem-del:active { background: #f0f0f0; color: #e64340; }
+
+/* 手动加一条记忆 */
+.wx-mem-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--wx-line);
+}
+.wx-mem-add input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: #f7f7f7;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 14px;
+  color: var(--wx-text);
+}
+.wx-mem-add button { flex: 0 0 auto; color: var(--wx-green); }
+
+/* ---------------- 折叠分组（她记得的事） ----------------
+   原来整页是「一行小标题 + 一个大白块」平铺下来，六七组叠在一起，
+   翻起来很累。现在收成一条条可折叠的，标题右边带数量，
+   收起来也一眼看得出里面有多少东西。 */
+
+.wx-fold {
+  background: #fff;
+  border-top: 1px solid var(--wx-line);
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 15px 16px;
+  font-size: 15px;
+  color: var(--wx-text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.wx-fold > summary::-webkit-details-marker { display: none; }
+.wx-fold > summary:active { background: #f7f7f7; }
+.wx-fold .wx-fold-t { flex: 1 1 auto; min-width: 0; }
+.wx-fold .wx-fold-n {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  color: var(--wx-text-time);
+}
+.wx-fold > summary::after {
+  content: '›';
+  flex: 0 0 auto;
+  transform: rotate(90deg);
+  transition: transform .2s;
+  color: var(--wx-text-time);
+  font-size: 17px;
+  line-height: 1;
+}
+.wx-fold[open] > summary::after { transform: rotate(-90deg); }
+/* 展开后里面的分组别再画上下边框，否则像又套了一层盒子 */
+.wx-fold .wx-group { border-top: none; border-bottom: none; }
+
+/* ---------------- 搜聊天记录 ---------------- */
+
+.wx-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 12px 0;
+  padding: 9px 12px;
+  background: #fff;
+  border: 1px solid var(--wx-line);
+  border-radius: 9px;
+}
+.wx-search-ico { flex: 0 0 auto; font-size: 14px; opacity: .55; }
+.wx-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--wx-text);
+}
+/* 手机上 type=search 自带一个清除按钮，和右边那个重复 */
+.wx-search input::-webkit-search-cancel-button { display: none; }
+.wx-search-x {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #ececec;
+  color: var(--wx-text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wx-search-x:active { background: #e0e0e0; }
+
+.wx-search-info {
+  padding: 11px 16px 7px;
+  font-size: 12.5px;
+  color: var(--wx-text-dim);
+}
+
+/* 搜到的每一条 */
+.wx-hit {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--wx-line);
+  cursor: pointer;
+}
+.wx-hit:last-child { border-bottom: none; }
+.wx-hit:active { background: #f7f7f7; }
+.wx-hit-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.wx-hit-hd .who { font-size: 12.5px; color: var(--wx-text-dim); }
+.wx-hit-hd .who.me { color: #576b95; }
+.wx-hit-hd .ts { font-size: 11.5px; color: var(--wx-text-time); }
+.wx-hit-tx {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--wx-text);
+  word-break: break-word;
+}
+.wx-hit mark {
+  background: #fff2a8;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ---------------- 内置时钟（「+」面板里） ---------------- */
+
+.wx-clock {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-clock-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.wx-clock-label { font-size: 13px; color: var(--wx-text-dim); }
+.wx-clock-now {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--wx-text);
+  font-variant-numeric: tabular-nums;
+}
+.wx-clock-row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+/* 直接设置时间。手机上点开是系统自带的滚轮选择器（年/月/日/时/分），
+   比"只能 +1 小时 / +1 天"自由得多。数字用等宽，跳动时宽度不抖。 */
+.wx-clock-pick {
+  display: block;
+  width: 100%;
+  margin-bottom: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--wx-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--wx-text);
+  font-family: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.wx-clock-row button {
+  flex: 1 1 0;
+  border: none;
+  background: #f2f2f2;
+  color: var(--wx-text);
+  font-size: 13px;
+  padding: 9px 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.wx-clock-row button:active { background: #e4e4e4; }
+.wx-clock-row button.ghost {
+  background: #fff;
+  color: var(--wx-green);
+  box-shadow: inset 0 0 0 1px var(--wx-green);
+}
+.wx-clock-note {
+  font-size: 11.5px;
+  color: var(--wx-text-time);
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+/* ---------------- 好感度（「+」面板里 / 人设页里） ---------------- */
+
+.wx-aff {
+  padding: 13px 14px 14px;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-aff-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.wx-aff-label { font-size: 13px; color: var(--wx-text-dim); }
+.wx-aff-num {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--wx-text);
+  font-variant-numeric: tabular-nums;
+}
+.wx-aff-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #ececec;
+  overflow: hidden;
+}
+.wx-aff-bar.big { height: 8px; margin: 10px 0 8px; }
+.wx-aff-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: #b7b7b7;
+  transition: width .25s ease;
+}
+/* 档位配色：生分灰 → 很喜欢红 */
+.wx-aff-bar i[data-lv="0"] { background: #b7b7b7; }
+.wx-aff-bar i[data-lv="20"] { background: #8fb8e0; }
+.wx-aff-bar i[data-lv="40"] { background: #6fc48c; }
+.wx-aff-bar i[data-lv="60"] { background: #f0a63c; }
+.wx-aff-bar i[data-lv="80"] { background: #ec6a6a; }
+
+.wx-aff-rel {
+  margin-top: 9px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--wx-text);
+}
+.wx-aff-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.wx-aff-row button {
+  flex: 1 1 0;
+  border: none;
+  background: #f2f2f2;
+  color: var(--wx-text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.wx-aff-row button:active { background: #e4e4e4; }
+.wx-aff-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--wx-text-time);
+}
+.wx-aff.unset .wx-aff-bar,
+.wx-aff.unset .wx-aff-row { display: none; }
+
+/* 关系那一行（身份是独立于温度的另一栏，所以"没设好感度"时也要显示）
+   它排在好感度块的最前面：面板只有 50vh 高，放最后会被挤到滚动区外面 */
+.wx-aff-rel-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 11px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--wx-line);
+  font-size: 13px;
+  color: var(--wx-text-dim);
+}
+.wx-aff-rel-row b { color: var(--wx-text); font-weight: 600; }
+#quickRelationChips { margin: 0 0 11px; }
+#quickRelationChips .wx-chip { font-size: 12.5px; padding: 7px 10px; }
+
+/* ---------------- 标签选择（人设页） ---------------- */
+
+.wx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+.wx-chips-pad { padding: 0 16px 14px; }
+.wx-chip {
+  border: 1px solid var(--wx-line);
+  background: #f7f7f7;
+  color: var(--wx-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+.wx-chip:active { background: #eee; }
+.wx-chip.on {
+  background: #e7f8ee;
+  border-color: var(--wx-green);
+  color: #0a8f4d;
+}
+.wx-opt { color: var(--wx-text-time); font-size: 12.5px; }
+
+/* 「她这次读到什么」预览 */
+.wx-mem-preview {
+  margin: 0 16px 12px;
+  padding: 11px 12px;
+  background: #f7f7f7;
+  border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #444;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wx-btn-row { display: flex; gap: 14px; flex: 0 0 auto; }
+
+/* 导入聊天记录 */
+.wx-import-text {
+  width: 100%;
+  min-height: 130px;
+  padding: 11px 12px;
+  border: 1px solid var(--wx-line);
+  border-radius: 8px;
+  background: #fafafa;
+  color: var(--wx-text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.wx-import-text:focus { border-color: rgba(7, 193, 96, .6); }
+
+/* [hidden] 必须是说了算的。
+ *
+ * 本文件里很多元素写了 display:flex / display:block，
+ * 它们会**盖过**浏览器对 [hidden] 的默认处理 —— 于是属性是 hidden、
+ * 屏幕上却还好端端地挂着。
+ * 「装安卓版」那条横幅就这么白挂了好久：JS 里 bar.hidden = true 写了等于没写。
+ */
+[hidden] { display: none !important; }
+
+/* 「关系好像变了？」提示条（聊天页底部，输入栏上方） */
+.wx-rel-tip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  background: linear-gradient(135deg, #fff7e0 0%, #fff2cc 100%);
+  border-top: 1px solid #f0dfa8;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8a6d0b;
+}
+.wx-rel-tip .tx { flex: 1 1 auto; min-width: 0; }
+.wx-rel-tip .go {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 14px;
+  padding: 6px 14px;
+  background: var(--wx-green);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wx-rel-tip .go:active { opacity: .85; }
+.wx-rel-tip .x {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #b09a4a;
+  font-size: 13px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+/* ---------------- 网页版下载横幅 ---------------- */
+.wx-dl-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  background: linear-gradient(135deg, #e8f8ee 0%, #d6f5e3 100%);
+  border-bottom: 1px solid #c3ebd4;
+}
+.wx-dl-bar .dl-txt {
+  flex: 1;
+  font-size: 13.5px;
+  color: #17883f;
+  line-height: 1.5;
+}
+.wx-dl-bar .dl-txt b { color: #07c160; }
+.wx-dl-bar .dl-go {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 16px;
+  padding: 7px 16px;
+  background: var(--wx-green);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wx-dl-bar .dl-go:active { opacity: .85; }
+
+/* ---------------- 头像 / 名字自定义 ---------------- */
+
+.wx-avatar-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.wx-avatar-pick .cur {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-size: 23px;
+  background: linear-gradient(135deg, #ffb3c6 0%, #ff8fab 100%);
+  background-size: cover;
+  background-position: center;
+  color: #fff;
+  overflow: hidden;
+}
+
+.wx-emoji-pick {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.wx-emoji-pick button {
+  border: none;
+  background: #f5f5f5;
+  font-size: 24px;
+  line-height: 1;
+  padding: 8px 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.wx-emoji-pick button:active { background: #e6e6e6; }
+.wx-emoji-pick button.on { background: #d6f5e3; box-shadow: inset 0 0 0 2px #07c160; }
+
+/* 聊天头像支持图片背景 */
+.wx-avatar.her.pic,
+.wx-avatar.me.pic {
+  background-size: cover;
+  background-position: center;
+}
+.wx-avatar.her.pic span { display: none; }
+
+/* 「你」的预览圆点用中性底色，跟她的区分开 */
+#myAvatarPreview {
+  background: linear-gradient(135deg, #9ec5fe 0%, #6ea8fe 100%);
+}
+#myAvatarPreview.pic { background-size: cover; background-position: center; }
+
+/* ---------------- 底部弹出菜单 ---------------- */
+
+/* 默认隐藏。
+   注意：这里只写 display:none，不要写成带 display:flex 的常驻规则——
+   作者样式里的类选择器会盖过浏览器对 [hidden] 的默认处理，
+   那样元素带着 hidden 属性仍然会显示，把底下的按钮挡住。
+   实际的显示由 JS 用内联 display 控制（见 openMenu/closeMenu）。 */
+.wx-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .4);
+  z-index: 20;
+  align-items: flex-end;
+  animation: wxFade .18s;
+}
+@keyframes wxFade { from { opacity: 0 } to { opacity: 1 } }
+
+.wx-sheet {
+  width: 100%;
+  background: #f7f7f7;
+  border-radius: 12px 12px 0 0;
+  padding: 6px 0 calc(6px + var(--safe-bottom));
+  animation: wxUp .22s cubic-bezier(.2,.9,.3,1);
+  max-width: 640px;
+  margin: 0 auto;
+}
+@keyframes wxUp { from { transform: translateY(100%) } to { transform: none } }
+
+.wx-sheet button {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--wx-text);
+  cursor: pointer;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-sheet button:active { background: #ececec; }
+.wx-sheet button.cancel {
+  margin-top: 6px;
+  border-bottom: none;
+  border-top: 6px solid #ececec;
+  font-weight: 500;
+  color: #555;
+}
+
+/* ---------------- Toast ---------------- */
+
+.wx-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%) translateY(8px);
+  background: rgba(0, 0, 0, .78);
+  color: #fff;
+  font-size: 14px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  z-index: 30;
+  opacity: 0;
+  transition: opacity .2s, transform .2s;
+  max-width: 78vw;
+  text-align: center;
+  pointer-events: none;
+  line-height: 1.5;
+}
+.wx-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* 桌面端居中 */
+@media (min-width: 640px) {
+  .screen {
+    max-width: 640px;
+    margin: 0 auto;
+    border-left: 1px solid var(--wx-line);
+    border-right: 1px solid var(--wx-line);
+  }
+  .wx-bubble { max-width: 60%; }
+}

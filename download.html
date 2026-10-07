@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#ededed" />
+<title>下载安卓版 · 小雨</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 22px 18px 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f5f5; color: #191919; line-height: 1.65;
+  }
+  h1 { font-size: 22px; text-align: center; margin: 10px 0 6px; }
+  .sub { text-align: center; color: #888; font-size: 13.5px; margin-bottom: 22px; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 16px 17px; margin-bottom: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 8px; display: flex; align-items: center; gap: 7px; }
+  .card p { margin: 6px 0; font-size: 14px; color: #555; }
+  .card b { color: #07c160; }
+  .btn {
+    display: block; text-align: center; text-decoration: none;
+    background: #07c160; color: #fff; font-size: 17px; font-weight: 600;
+    padding: 16px; border-radius: 12px; margin: 18px 0 10px;
+  }
+  .btn:active { opacity: .85; }
+  .btn.ghost { background: #fff; color: #07c160; border: 1px solid #07c160; font-weight: 500; }
+  .note { font-size: 12.5px; color: #999; line-height: 1.8; margin-top: 18px; }
+  .note code { background: #eee; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .ver { text-align: center; color: #bbb; font-size: 12px; margin-top: 26px; }
+</style>
+</head>
+<body>
+
+<h1>🌧️ 小雨</h1>
+<div class="sub">一个 20 岁的女孩，陪你说说话</div>
+
+<div class="card">
+  <h2>🌐 网页版（你现在就在用）</h2>
+  <p>打开即用，不用安装。</p>
+  <p>需要联网，用云端模型，回复质量最好。</p>
+</div>
+
+<div class="card">
+  <h2>📱 安卓版（推荐）</h2>
+  <p><b>可以完全离线聊</b> —— 模型跑在手机里，飞行模式也能用。</p>
+  <p><b>不花一分钱</b> —— 不消耗任何 API 额度。</p>
+  <p>代价：手机发热、耗电，回复比云端慢一些。</p>
+</div>
+
+<a class="btn" id="btnApk" download="xiaoyu.apk">下载安卓版 APK</a>
+<a class="btn ghost" href="./">返回网页版聊天</a>
+
+<div class="note" id="noApk" hidden>
+  这个部署**没有配 APK 下载地址**（见 <code>src/config.js</code> 里的 <code>APK_URL</code>）。<br />
+  把地址填上，这个按钮就会出现。
+</div>
+
+<div class="note">
+  下载完成后点开安装。<br />
+  如果提示「未知来源 / 外部来源应用」，选择允许即可 ——
+  因为这个 App 不是从应用商店装的。<br /><br />
+  装好后打开：<b>设置 → 用哪家的模型 → 📱 手机本地模型（完全离线）</b>，
+  然后下载一个模型（建议 Qwen2.5 3B，约 2GB），下完就能永久离线使用。
+</div>
+
+<div class="ver" id="ver">小雨 · 网页版与安卓版同步更新</div>
+
+<script type="module">
+  // APK 单独托管在另一个 Pages 项目里（原因见 src/config.js 的说明）。
+  // 从同一个源读地址，保证改一处就够，不用两边对。
+  //
+  // APK_URL 留空 = 这个部署不发安装包（开源版就是这样）：
+  // 按钮直接收起来，免得点下去是一个 404。
+  import { APK_URL } from './src/config.js';
+  const btn = document.getElementById('btnApk');
+  if (APK_URL) {
+    btn.href = APK_URL;
+  } else {
+    btn.hidden = true;
+    document.getElementById('noApk').hidden = false;
+  }
+</script>
+
+</body>
+</html>
