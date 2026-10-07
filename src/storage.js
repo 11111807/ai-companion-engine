@@ -38,6 +38,11 @@ export function readJSON(key, fallback) {
   }
 }
 
+/** 写一个 JSON。坏数据不抛错，只返回失败 */
+export function writeJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+}
+
 /** 缺字段就补默认值（老版本存下来的数据没有新字段） */
 export function fillDefaults(obj, defaults) {
   for (const [k, v] of Object.entries(defaults)) {

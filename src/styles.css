@@ -53,6 +53,155 @@ body { background: var(--wx-bg); }
 }
 .screen.overlay.show { transform: translateX(0); visibility: visible; }
 
+/* ---------------- 主屏 + 底部导航 ----------------
+ *
+ * 消息 / 好友 / 我 三个主页共用一条底部导航，聊天页和各个设置页是盖在它们上面的下一层。
+ *
+ * ⚠️ 主页底部要留出导航栏的高度，否则最后一条会被压在导航栏下面点不到。
+ *    高度用变量算一次，别在两个地方各写一遍数字。
+ */
+:root { --tabbar-h: calc(var(--safe-bottom) + 52px); }
+
+.screen.home { padding-bottom: var(--tabbar-h); }
+
+.wx-tabbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 2;                                  /* 低于 overlay(3)，所以被设置页盖住是对的 */
+  display: flex;
+  height: var(--tabbar-h);
+  padding-bottom: var(--safe-bottom);
+  background: var(--wx-nav);
+  border-top: 1px solid var(--wx-nav-border);
+}
+.wx-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  padding: 0;
+  position: relative;
+  color: #7a7a7a;
+  font-size: 10.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.wx-tab svg { width: 25px; height: 25px; }
+.wx-tab.on { color: var(--wx-green); }
+/* 未读小红点：贴在图标右上角 */
+.wx-tab-dot {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 7px);
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--wx-danger);
+  border: 1.5px solid var(--wx-nav);
+}
+
+/* ---------------- 列表（消息 / 好友 / 我） ---------------- */
+
+.wx-list { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.wx-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  background: #fff;
+  border-bottom: 1px solid var(--wx-line);
+  cursor: pointer;
+}
+.wx-item:active { background: #f0f0f0; }
+.wx-item-body { flex: 1 1 auto; min-width: 0; }
+.wx-item-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wx-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wx-item-time { flex: 0 0 auto; font-size: 11.5px; color: var(--wx-text-time); }
+.wx-item-sub {
+  margin-top: 3px;
+  font-size: 13.5px;
+  color: var(--wx-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 未读数：微信那个红色小胶囊 */
+.wx-item-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--wx-danger);
+  color: #fff;
+  font-size: 11.5px;
+  line-height: 18px;
+  text-align: center;
+}
+/* 加好友那一行是虚线框的引导，不是真好友 */
+.wx-item.add { background: #fafafa; color: var(--wx-green); }
+.wx-item.add .wx-item-name { color: var(--wx-green); }
+
+/* 列表行里的头像。
+   不复用 .wx-avatar.her —— 那个类是"聊天页里她的头像"，
+   测试要靠它验证"换头像后聊天区跟着变"，复用会让选择器抓到列表里的。 */
+.wx-avatar.item {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  border-radius: 6px;
+  font-size: 21px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;            /* 有些 emoji 比字框大，不裁会顶出去 */
+  background: linear-gradient(135deg, #ffd9e2 0%, #ffc2d1 100%);
+}
+/* 加好友那两行的图标：灰底、不要粉色（那是"人"的头像色） */
+.wx-avatar.item.blank { background: #ececec; color: #666; }
+
+/* 「我」那张卡片 */
+.wx-me-card {  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 16px;
+  background: #fff;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-me-name { font-size: 20px; font-weight: 600; }
+.wx-me-sub { margin-top: 4px; font-size: 13px; color: var(--wx-text-dim); }
+
+.wx-group-title {
+  padding: 14px 14px 7px;
+  font-size: 12.5px;
+  color: var(--wx-text-dim);
+}
+
+/* 好友页 / 消息页的空状态 */
+.wx-empty {
+  padding: 40px 28px;
+  text-align: center;
+  color: var(--wx-text-dim);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
 /* 覆盖层的叠放顺序。
  *
  * #screen-settings 在 index.html 里排在最后，所有覆盖层又都是 z-index: 3 ——

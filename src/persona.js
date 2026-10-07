@@ -180,6 +180,37 @@ export function memoryBlock(userProfile = {}, summary = []) {
 }
 
 /**
+ * 「他是谁」—— 我自己的基础资料，**所有 AI 好友共用一份**。
+ *
+ * 为什么单独一段（而不是并进记忆块）：记忆会淡、会变，
+ * 而"他叫什么、做什么、多大、什么性别、生日哪天"是**固定档案**，
+ * 不该参与遗忘曲线，也不该被当成"你记得的一件事"。
+ *
+ * 只在真的填了资料时才输出 —— 没填就给一段空话，模型反而会自己编。
+ */
+export function meBlock(me = {}) {
+  const name = String(me.name || '').trim();
+  const bits = [];
+  if (me.age) bits.push(`${Math.round(Number(me.age))} 岁`);
+  if (me.job) bits.push(`做的是「${String(me.job).trim()}」`);
+  if (me.gender === 'm') bits.push('男的');
+  else if (me.gender === 'f') bits.push('女的');
+  if (me.birthday) bits.push(`生日 ${String(me.birthday).trim()}`);
+
+  if (!name && !bits.length) return '';
+
+  const lines = ['【他是谁】（这是他固定的档案，不是"你记得的事"，不会随时间淡掉）'];
+  if (name) lines.push(`他叫${name}。你平时就叫他${name}。`);
+  if (bits.length) lines.push(`关于他：${bits.join('，')}。`);
+  lines.push('');
+  lines.push(`怎么用：
+- 这些是**已知事实**，不用他再自我介绍一遍，也不用你"回想"
+- 可以自然地用到，但**别背档案** —— 真朋友不会每次聊天都念一遍你的职业和年龄
+- 他要是当场说了不一样的（比如换了工作），以他说的为准，别拿档案去纠正他`);
+  return lines.join('\n');
+}
+
+/**
  * 构造系统提示词
  * @param {object} [userProfile] 用户档案（跨会话记住的东西）
  * @param {object} [opts]
@@ -237,6 +268,14 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   {
     const mem = memoryBlock(userProfile, summary);
     if (mem) parts.push(mem);
+  }
+
+  // ---------------- 他是谁（我的固定档案，所有好友共用） ----------------
+  // 放在记忆之后：记忆是"她经历过的事"，这一段是"她本来就知道的档案"。
+  // 用户明确要求过"每个 ai 好友能看到我自己的信息"，所以它是全局的。
+  {
+    const me = meBlock(opts.me || {});
+    if (me) parts.push(me);
   }
 
   // ---------------- 性格（人设里最要紧的一块） ----------------

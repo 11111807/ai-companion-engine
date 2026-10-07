@@ -27,6 +27,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const stripExports = (src) => src
   .replace(/^export\s*\{[^}]*\}\s*(?:from\s*['"][^'"]+['"])?;?[ \t]*$/gm, '')
   .replace(/^export\s+/gm, '');
+// ⚠️ 这里必须能跨行匹配（几处 import 是写成多行的），所以用 [\s\S]*?。
+//    注意别跟下面 APP_REPLACEMENTS 的写法搞混：那边的正则只在 app.js 上跑，
+//    必须用"括号内不含花括号"的写法，否则会跨过很多条 import 一起吞掉。
 const dropImports = (src) => src.replace(/^import\s+[\s\S]*?from\s*['"][^'"]+['"];?[ \t]*$/gm, '');
 const inlinable = (src) => dropImports(stripExports(src));
 
@@ -58,17 +61,17 @@ const APP_REPLACEMENTS = [
     'const { buildIndex, appendToIndex, search: recallSearch, formatHits } = __recall;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/habits\.js['"];?/,
     'const { habitsBlock } = __habits;'],
-  // memory.js 的 import 是跨多行的，[^}]* 匹配不到，这里用 [\s\S]*?
+  // memory.js 的 import 是跨多行的，[^}]* 匹配不到，这里用 [^{}]*
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/memory\.js['"];?/,
     'const { newMeta, touchMeta, decayFacts, isPermanent, isObsession, strengthLabel, strengthPercent, PERMANENT_HITS, OBSESSION_EMO } = __memory;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/emotion\.js['"];?/,
     'const { intensityOf, intensityLabel, OBSESSION_EMO: EMO2 } = __emotion;'],
-  // 这一轮新拆出来的四个模块。都是跨多行 import，[^}]* 匹配不到，用 [\s\S]*?
-  [/import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/format\.js['"];?/,
+  // 这一轮新拆出来的四个模块。都是跨多行 import，[^}]* 匹配不到，用 [^{}]*
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/format\.js['"];?/,
     'const { esc, isEmojiOnly, timeText: formatTimeText, gapText } = __format;'],
-  [/import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/storage\.js['"];?/,
-    'const { CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES, readJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection, storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig, decayProfileFacts, hoistManualEntries, pruneFactsMeta } = __storage;'],
-  [/import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/memory-io\.js['"];?/,
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/storage\.js['"];?/,
+    'const { CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES, readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection, storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig, decayProfileFacts, hoistManualEntries, pruneFactsMeta } = __storage;'],
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/memory-io\.js['"];?/,
     'const { BIO_MAX_POINTS, parseMemoryBlock, applyMemory: applyMemoryTo, toggleObsession: toggleObsessionIn, parseBioPoints, applyUserBio: applyUserBioTo, summarizeConversation, resetRecallIndex, recallOldMessages: recallOld, recallBlock: recallBlockOf, parseHistoryText: parseHistory, normalizeTimestamps: stampImported, mergeFacts } = __memoryIO;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/search\.js['"];?/,
     'const { SEARCH_MAX_HITS, searchMessages: searchIn, snippetOf } = __search;'],
@@ -76,6 +79,14 @@ const APP_REPLACEMENTS = [
   // 效果就是"这个部署没配安装包"——和开源版的真实情况一致。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/config\.js['"];?/,
     "const { APK_URL } = { APK_URL: '' };"],
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/presets\.js['"];?/,
+    'const { PERSONA_PRESETS, findPreset, presetToForm } = __presets;'],
+  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/me\.js['"];?/,
+    'const { ME_DEFAULTS, readMe, applyMe, meSummary } = __me;'],
+  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/friend-ui\.js['"];?/,
+    'const { createFriendUI } = __friendUI;'],
+  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/personas\.js['"];?/,
+    'const { PERSONAS_KEY, DEFAULT_ID, migrate, keysFor, activeKeys, orderedList, byRecency, findPersona, addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread } = __personas;'],
 ];
 
 /** 每个模块导出什么（两个测试入口用的并集，多给几个不影响） */
@@ -102,7 +113,7 @@ const EXPORTS = {
     'halfLifeDays', 'FORGET_BELOW'],
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
-  storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'fillDefaults',
+  storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
     'fixConfigShape', 'fixProfileShape', 'sanitizeAffection', 'storageUsed', 'historyBytes',
     'writeChat', 'quotaWarning', 'writeProfile', 'writeConfig',
     'decayProfileFacts', 'hoistManualEntries', 'pruneFactsMeta'],
@@ -110,6 +121,12 @@ const EXPORTS = {
     'parseBioPoints', 'toThirdPerson', 'applyUserBio', 'summarizeConversation',
     'resetRecallIndex', 'recallOldMessages', 'recallBlock', 'parseHistoryText',
     'normalizeTimestamps', 'mergeFacts'],
+  personas: ['PERSONAS_KEY', 'DEFAULT_ID', 'LEGACY_KEYS', 'keysFor', 'normalizeNav', 'orderedList',
+    'findPersona', 'makeId', 'newPersona', 'addPersona', 'removePersona', 'setActive',
+    'patchPersona', 'noteActivity', 'clearUnread', 'byRecency', 'migrate', 'activeKeys', 'keysOf'],
+  presets: ['PERSONA_PRESETS', 'findPreset', 'presetToForm'],
+  me: ['ME_DEFAULTS', 'readMe', 'meIsEmpty', 'meSignature', 'applyMe', 'meSummary'],
+  friendUI: ['createFriendUI'],
 };
 
 /**
@@ -137,6 +154,10 @@ export function inlineScript(dir = '') {
     memory: inlinable(read('src/memory.js')),
     storage: inlinable(read('src/storage.js')),
     memoryIO: inlinable(read('src/memory-io.js')),
+    personas: inlinable(read('src/personas.js')),
+    presets: inlinable(read('src/presets.js')),
+    me: inlinable(read('src/me.js')),
+    friendUI: inlinable(read('src/friend-ui.js')),
   };
 
   let appSrc = read('src/app.js');
@@ -161,6 +182,18 @@ export function inlineScript(dir = '') {
       })();
       const __search = (function () { ${src.search}
         return { ${pick(EXPORTS.search)} };
+      })();
+      const __personas = (function () { ${src.personas}
+        return { ${pick(EXPORTS.personas)} };
+      })();
+      const __presets = (function () { ${src.presets}
+        return { ${pick(EXPORTS.presets)} };
+      })();
+      const __me = (function () { ${src.me}
+        return { ${pick(EXPORTS.me)} };
+      })();
+      const __friendUI = (function () { ${src.friendUI}
+        return { ${pick(EXPORTS.friendUI)} };
       })();
       const __memory = (function (OBSESSION_EMO) { ${src.memory}
         return { ${pick(EXPORTS.memory)} };

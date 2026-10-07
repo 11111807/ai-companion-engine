@@ -42,10 +42,20 @@ import { intensityOf, intensityLabel } from './emotion.js';
 import { esc, isEmojiOnly, timeText as formatTimeText, gapText } from './format.js';
 import {
   CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES,
-  readJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection,
+  readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection,
   storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig,
   decayProfileFacts, hoistManualEntries, pruneFactsMeta,
 } from './storage.js';
+import {
+  PERSONA_PRESETS, findPreset, presetToForm,
+} from './presets.js';
+import { ME_DEFAULTS, readMe, applyMe, meSummary } from './me.js';
+import { createFriendUI } from './friend-ui.js';
+import {
+  PERSONAS_KEY, DEFAULT_ID,
+  migrate, keysFor, activeKeys, orderedList, byRecency, findPersona,
+  addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread,
+} from './personas.js';
 import {
   BIO_MAX_POINTS, parseMemoryBlock, applyMemory as applyMemoryTo, toggleObsession as toggleObsessionIn,
   parseBioPoints, applyUserBio as applyUserBioTo,
@@ -233,6 +243,11 @@ const state = {
     herTraitNote: '',      // 自己补的性格描述
     userBio: '',           // 他（用户）的大致生平，会拆成永久记忆
     personaDone: false,    // 走过「开始之前」没有
+    // ---- 我自己的资料（全局：所有好友共用一份，见 src/me.js） ----
+    myJob: '',             // 我的职业/专业（她据此判断是不是同行）
+    myAge: 0,
+    myGender: '',          // 'm' / 'f' / ''
+    myBirthday: '',        // 'M-D'
   },
   messages: [],      // { role, content, ts }
   profile: {         // 跨会话记忆
@@ -251,7 +266,61 @@ const state = {
   generating: false,
   abort: null,
   typingNode: null,
+  // 多好友索引：{ list, order, active }。当前好友的 config/messages/profile
+  // 就在上面这三个字段里 —— loadPersona() 负责按 active 换掉它们。
+  nav: null,
 };
+
+// ================================================================
+// ================================================================
+//  好友界面
+//
+//  消息页 / 好友页 / 我 / 加好友 / 我的资料都在 src/friend-ui.js。
+//  它是唯一一个"界面模块持有 app.js 依赖"的地方（用工厂模式），
+//  因为这一块需要的状态和函数太多，硬做成参数传入会让调用点没法看。
+// ================================================================
+
+/** 我自己的资料（全局，所有好友共用一份） */
+const myMe = () => readMe(state.config);
+
+let friendUI = null;
+
+function initFriendUI() {
+  friendUI = createFriendUI({
+    state, $, $$, esc, timeText,
+    CHARACTER, PERSONA_PRESETS, findPreset, presetToForm,
+    keysFor, findPersona, orderedList, byRecency,
+    addPersona, setActive, patchPersona, clearUnread,
+    readJSON, saveConfig, saveProfile, saveChat, savePersonaIndex,
+    fixProfileShape, fixConfigShape, loadPersona, now,
+    renderHerIdentity, renderAffection, renderClock, renderChat,
+    openPersona, openSettings, openMenu, toast,
+    nearestAffPreset, defaultAffectionFor,
+    // 「我」那一页
+    readMe, applyMe, meSummary,
+    herName, herEmoji, parseBirthday,
+    setSegOn, segOn, renderAvatarPreview, onSeg,
+    pickAvatarForMe: () => {
+      avatarTarget = 'me';
+      renderChips('#avatarEmojiList', MY_EMOJIS, (v) => v === myEmoji());
+      $('#avatarPanelTitle').textContent = '给你自己选一个头像';
+      $('#avatarPanel').hidden = false;
+      requestAnimationFrame(() => $('#avatarPanel').classList.add('show'));
+    },
+  });
+}
+
+// 薄封装：别处按老名字调用就行（它们原来就是 app.js 里的函数）
+const switchPersona = (id) => friendUI.switchPersona(id);
+const openChat = (id) => friendUI.openChat(id);
+const closeChat = () => friendUI.closeChat();
+const showTab = (tab) => friendUI.showTab(tab);
+const renderNav = () => friendUI.renderNav();
+const renderMsgList = () => friendUI.renderMsgList();
+const renderMe = () => friendUI.renderMe();
+const refreshUnreadDot = () => friendUI.refreshUnreadDot();
+const bindHome = () => friendUI.bindHome();
+const renderMoodStrip = () => {};   // 旁白/情绪那一块还没做，后面几步会填
 
 // ---------------------------------------------------------------- 存储
 //
@@ -262,26 +331,60 @@ const state = {
 // 为什么这么切：那是**唯一碰磁盘的地方**，和界面代码混在一起的时候，
 // "数据长什么样、写下去之前会被怎么改"很难一眼看全。
 
-function loadLocal() {
-  // 注意是 Object.assign（原地合并），不能写成 state.config = {...}：
-  // 界面代码长期持有 state.config 这个引用，换掉对象它就拿到的还是旧的。
-  Object.assign(state.config, readJSON(CFG_KEY, {}));
-  const chat = readJSON(CHAT_KEY, []);
+// ---------------------------------------------------------------- 多好友
+//
+// 以前只有一个人格，三个 key 平铺。现在支持多个好友，但**默认好友
+// （id='default'，就是小雨）继续用那三个老 key** —— 老用户零迁移、
+// 老行为不动，多好友是纯增量。这个"特例"收在 src/personas.js 的 keysFor() 里，
+// 下面这几个薄封装只是把 nav 传进去。
+
+function loadNav() {
+  const legacy = readJSON(CFG_KEY, null) || readJSON(CHAT_KEY, null) || readJSON(PROFILE_KEY, null);
+  const { nav, migrated } = migrate(readJSON(PERSONAS_KEY, null), { hasLegacyData: !!legacy });
+  state.nav = nav;
+  if (migrated) writeJSON(PERSONAS_KEY, nav);
+  return nav;
+}
+
+const saveNav = () => writeJSON(PERSONAS_KEY, state.nav);
+/** 当前好友的存储键（默认好友=老 key，其他好友=自己的命名空间） */
+const navKeys = () => activeKeys(state.nav);
+/** 当前好友在列表里的那条记录 */
+const mePersona = () => findPersona(state.nav, state.nav.active) || findPersona(state.nav, DEFAULT_ID);
+
+/**
+ * 把某个好友的存档读进 state（config / messages / profile 三件套）。
+ *
+ * ⚠️ 必须是**原地合并**（Object.assign / 改属性），不能 `state.profile = {...}`：
+ * 界面代码长期持有这三个对象的引用，一换对象它拿到的就还是旧的那个。
+ */
+function loadPersona(id) {
+  const k = keysFor(id);
+  Object.assign(state.config, readJSON(k.config, {}));
+  const chat = readJSON(k.chat, []);
   // 完整保留历史（用户希望能回看过去聊了什么）。
   // 给模型看多少由 buildChatContext 按 token 预算决定，不在这里砍。
-  if (Array.isArray(chat)) state.messages = chat;
-  Object.assign(state.profile, readJSON(PROFILE_KEY, {}));
+  state.messages = Array.isArray(chat) ? chat : [];
+
+  const prof = readJSON(k.profile, {});
+  for (const key of Object.keys(state.profile)) delete state.profile[key];
+  Object.assign(state.profile, prof);
   fixProfileShape(state.profile, state.messages);
   fixConfigShape(state.config, saveConfig);
 }
 
+function loadLocal() {
+  loadNav();
+  loadPersona(state.nav.active);
+}
+
 function saveConfig() {
-  writeConfig(state.config);
+  writeConfig(state.config, navKeys().config);
 }
 
 /** 配额满了：尽量少砍，并且把砍了多少明确告诉他（别闷声丢记录） */
 function saveChat() {
-  const r = writeChat({ messages: state.messages });
+  const r = writeChat({ messages: state.messages, key: navKeys().chat });
   if (!r.ok) {
     // 一条都存不下（多半是头像图片太大）
     toast('本地存储满了：连一条记录都存不下。去设置里换个小头像，或者清空聊天记录。', 5200);
@@ -307,8 +410,11 @@ function saveProfile() {
   decayProfileFacts(state.profile, t);
   hoistManualEntries(state.profile, t);
   pruneFactsMeta(state.profile);
-  writeProfile(state.profile);
+  writeProfile(state.profile, state.profile, navKeys().profile);
 }
+
+/** 存好友索引（列表、顺序、当前是谁） */
+const savePersonaIndex = () => writeJSON(PERSONAS_KEY, state.nav);
 
 /**
  * 场景随时间自然演变。
@@ -994,6 +1100,7 @@ async function respond() {
       summary: state.profile.summary,
       herName: herName(),
       persona: personaForPrompt(),
+      me: myMe(),
       affection: affection(),
       affectionBase: state.profile.affectionBase,
       relation: state.config.herRelation,
@@ -1977,7 +2084,7 @@ function renderPersonaChips() {
  * @param {object} [opts]
  * @param {boolean} [opts.fromSettings] 从设置页进来的（那就给个返回键）
  */
-function openPersona({ fromSettings = false } = {}) {
+function openPersona({ fromSettings = false, asNew = false } = {}) {
   closePanels();
   closeMenu();
   const c = state.config;
@@ -2002,9 +2109,10 @@ function openPersona({ fromSettings = false } = {}) {
   perAff = affection() ?? suggestPerAff();
   perAffTouched = affection() != null;
 
-  // 第一次进来（还没设过）不给返回键：要么设完，要么点「开始聊天」
-  $('#btnClosePersona').hidden = !fromSettings && !c.personaDone;
-  $('#personaIntro').hidden = !!c.personaDone;
+  // 第一次进来（还没设过）不给返回键：要么设完，要么点「开始聊天」。
+  // 新加的好友（asNew）也算第一次 —— 得让他确认完这个人才算数。
+  $('#btnClosePersona').hidden = asNew || (!fromSettings && !c.personaDone);
+  $('#personaIntro').hidden = asNew ? false : !!c.personaDone;
   $('#perAvatarList').hidden = true;
 
   renderPersonaChips();
@@ -2072,6 +2180,12 @@ function applyPersona() {
   renderHerIdentity();
   renderAffection();
   if ($('#inpHerName')) $('#inpHerName').value = c.herName || '';
+  // 好友列表里的名字/头像跟着换（他刚在表单里改过的）
+  state.nav = patchPersona(state.nav, state.nav.active, {
+    name: herName(), emoji: herEmoji(),
+  });
+  savePersonaIndex();
+  renderNav();
 }
 
 /** 「开始聊天」：存下来 + 如果是第一次，顺便把开场白发出来 */
@@ -2813,6 +2927,7 @@ async function speakUp(reason) {
         summary: state.profile.summary,
         herName: herName(),
         persona: personaForPrompt(),
+      me: myMe(),
         affection: affection(),
         affectionBase: state.profile.affectionBase,
         relation: state.config.herRelation,
@@ -2926,6 +3041,23 @@ function setupDownloadEntry() {
 function bootGreeting() {
   if (state.messages.length) return;
   const t = now();
+
+  // 从预设加的好友：用预设自带的开场白，比通用问候更像这个人
+  // （只在第一次见面时用一次，之后就按普通聊天走）
+  const presetOpening = String(state.config.pendingOpening || '').trim();
+  if (presetOpening) {
+    delete state.config.pendingOpening;
+    saveConfig();
+    const parts = presetOpening.split('\n\n').map((s) => s.trim()).filter(Boolean);
+    parts.forEach((p, i) => {
+      state.messages.push({
+        role: 'assistant', content: p, ts: t + i, mid: i < parts.length - 1,
+      });
+    });
+    saveChat();
+    return;
+  }
+
   const parts = greeting(t).split('\n\n').filter(Boolean);
   parts.forEach((p, i) => {
     state.messages.push({
@@ -3307,6 +3439,7 @@ function bindEvents() {
   bindPersonaForm();
   bindMemoryScreen();
   bindSettingsForm();
+  bindHome();
 }
 
 async function restartChat() {
@@ -3373,6 +3506,7 @@ function init() {
   const willSpeak = !freshUser && shouldSpeakOnReturn();
   if (!freshUser && !willSpeak) bootGreeting();   // 只有全新用户才需要开场白
   renderChat();
+  initFriendUI();       // 好友界面要用到上面那些函数，所以在这儿初始化
   bindEvents();
   setupDownloadEntry();
   renderAffection();
@@ -3380,6 +3514,17 @@ function init() {
   closeMenu();
   closePanels();
   syncSettingsUI();
+
+  // 落到哪个页面：
+  //   有聊天记录 → 直接进聊天页（老用户/老测试的默认行为，别改）
+  //   全新用户   → 也进聊天页，人设页会盖在上面
+  //   加了好友但还没跟这个人说过话 → 停在消息列表，让底部导航露出来
+  renderNav();
+  const hadHistory = state.messages.length > 0;
+  if (hadHistory || freshUser) openChat();
+  else showTab('msgs');
+  renderMoodStrip();
+
   // 他打开聊天页之后要是一直不说话，隔几分钟让她主动开口
   armIdleTimer();
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -3449,6 +3594,18 @@ function init() {
       };
     }
   }
+
+  // 测试钩子：把内部状态暴露出来，方便测试断言"当前是谁"这类东西。
+  // （jsdom 的 VirtualConsole 不会把页面里的 console.log 转发出来，
+  //   所以排查问题时不能靠打日志，得能读到真实状态。）
+  window.__xiaoyu = Object.assign(window.__xiaoyu || {}, {
+    nav: () => JSON.parse(JSON.stringify(state.nav)),
+    activeName: () => herName(),
+    chatScreenShown: () => $('#screen-chat').classList.contains('show'),
+    chatCount: () => state.messages.length,
+    openChat,
+    switchPersona,
+  });
 }
 
 init();

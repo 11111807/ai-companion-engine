@@ -92,9 +92,18 @@ const CHAT = [
   msg('assistant', '好呀，那你早点睡\n\n不许再刷手机了', 3),
 ];
 
+/** 点一下某个元素（截图脚本里到处要用，抽出来省得每处写一长串） */
+const tap = (app, sel) => app.$(sel).dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+
+/** 走一遍"加好友"的完整流程，人设页直接点开始 */
+function addFriend(app, presetId) {
+  tap(app, '#btnAddFriend');
+  tap(app, `#addFriendList [data-preset="${presetId}"]`);
+  tap(app, '#btnPersonaStart');       // 预设已经填好表单了，直接开始
+}
+
 /** 人设页：填一遍，顺便展开生平的拆分预览 */
-function personaSetup(app) {
-  app.$('#perBirthday').value = '2-25';
+function personaSetup(app) {  app.$('#perBirthday').value = '2-25';
   app.$('#perBirthday').dispatchEvent(new app.window.Event('input', { bubbles: true }));
   app.$('#chipsTraits').querySelector('[data-chip="慢热"]')
     .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
@@ -199,6 +208,53 @@ const CASES = [
     seed: { chat: CHAT, profile: { msgCount: 320, affection: 12 }, config: { herRelation: '陌生人', personaDone: true } },
     setup: (app) => {
       app.$('#btnPlus').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+  },
+  // ---- 多好友：消息页 / 好友页 / 我 ----
+  {
+    name: '11-msgs',
+    w: 390, h: 844,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herRelation: '恋人', personaDone: true } },
+    setup: (app) => {
+      addFriend(app, 'linyan');
+      addFriend(app, 'xiaoan');
+      // 造完要切回默认好友"小雨"，不然列表看起来只有新加的人
+      app.$('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      app.$$('#msgList .wx-item')[0].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      app.$('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+  },
+  {
+    name: '12-friends',
+    w: 390, h: 844,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herRelation: '恋人', personaDone: true } },
+    setup: (app) => {
+      addFriend(app, 'linyan');
+      addFriend(app, 'suyi');
+      app.$('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      tap(app, '.wx-tab[data-tab="friends"]');
+    },
+  },
+  {
+    name: '13-add-friend',
+    w: 390, h: 844,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { personaDone: true } },
+    setup: (app) => {
+      app.$('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      tap(app, '.wx-tab[data-tab="friends"]');
+      app.$('#btnAddFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+  },
+  {
+    name: '14-me',
+    w: 390, h: 700,
+    seed: {
+      chat: CHAT, profile: { msgCount: 320 },
+      config: { personaDone: true, userName: '阿哲', myEmoji: '🐶', myAge: 27, myJob: '后端开发', myGender: 'm' },
+    },
+    setup: (app) => {
+      app.$('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      tap(app, '.wx-tab[data-tab="me"]');
     },
   },
 ];

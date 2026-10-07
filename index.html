@@ -16,6 +16,157 @@
 </head>
 <body>
 
+<!-- ==================== 消息页（首页） ==================== -->
+<!-- 微信的底部四格：消息 / 好友 / 我。聊天页是"消息"里点进去的下一层。 -->
+<section class="screen home" id="screen-msgs">
+  <header class="wx-navbar home-nav">
+    <div class="wx-navbar-title"><strong>消息</strong></div>
+    <button class="wx-navbar-btn" id="btnMsgsMore" aria-label="更多">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/>
+      </svg>
+    </button>
+  </header>
+  <div class="wx-list" id="msgList"></div>
+</section>
+
+<!-- ==================== 好友页 ==================== -->
+<section class="screen home" id="screen-friends" hidden>
+  <header class="wx-navbar home-nav">
+    <div class="wx-navbar-title"><strong>好友</strong></div>
+    <button class="wx-navbar-btn" id="btnAddFriend" aria-label="加好友">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+    </button>
+  </header>
+  <div class="wx-list" id="friendList"></div>
+</section>
+
+<!-- ==================== 我 ==================== -->
+<section class="screen home" id="screen-me" hidden>
+  <header class="wx-navbar home-nav">
+    <div class="wx-navbar-title"><strong>我</strong></div>
+  </header>
+  <div class="wx-list" id="meCard"></div>
+</section>
+
+<!-- 底部导航（只在这三个主页上出现，聊天页和各个设置页都盖在它上面） -->
+<nav class="wx-tabbar" id="tabbar">
+  <button type="button" class="wx-tab on" data-tab="msgs">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round">
+      <path d="M4 6.5A2.5 2.5 0 016.5 4h11A2.5 2.5 0 0120 6.5v7A2.5 2.5 0 0117.5 16H10l-4.6 3.2A.6.6 0 014.6 18.7V16A2.5 2.5 0 014 14.3z"/>
+    </svg>
+    <span>消息</span>
+    <i class="wx-tab-dot" id="tabDotMsgs" hidden></i>
+  </button>
+  <button type="button" class="wx-tab" data-tab="friends">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="8" r="3.2"/><path d="M3.4 19.2c.6-3 2.9-4.7 5.6-4.7s5 1.7 5.6 4.7"/>
+      <path d="M16.2 5.4a3 3 0 010 5.6M17.6 14.9c2.1.5 3.4 2.2 3.8 4.3"/>
+    </svg>
+    <span>好友</span>
+  </button>
+  <button type="button" class="wx-tab" data-tab="me">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="8.2" r="3.6"/><path d="M4.8 20c.7-3.5 3.5-5.6 7.2-5.6s6.5 2.1 7.2 5.6"/>
+    </svg>
+    <span>我</span>
+  </button>
+</nav>
+
+<!-- ==================== 改我的资料 ==================== -->
+<section class="screen overlay wx-settings" id="screen-me-edit" hidden>
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseMe" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong>我的资料</strong></div>
+  </header>
+  <div class="wx-settings-body">
+    <div class="wx-cell-note" style="padding:12px 16px 0">
+      这些资料<b>所有好友共用一份</b>：她们都知道你是谁、做什么的。
+      记忆和好感度则各人各一份，互不干涉。
+    </div>
+
+    <div class="wx-group-title">我是什么样的人</div>
+    <div class="wx-group">
+      <div class="wx-cell">
+        <label for="meName">我叫什么</label>
+        <input id="meName" type="text" maxlength="12" placeholder="阿哲" />
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">头像</span>
+        <div class="wx-avatar-pick">
+          <div class="wx-avatar item" id="meAvatarPreview">我</div>
+          <button class="wx-btn-text" id="btnPickMeAvatar">更换</button>
+        </div>
+      </div>
+      <div class="wx-cell">
+        <label for="meJob">职业 / 专业</label>
+        <input id="meJob" type="text" maxlength="20" placeholder="程序员、会计、临床医学…" />
+        <div class="wx-cell-note">
+          填了之后，她就能判断你俩是不是同行 —— 同行能聊到一块去。
+        </div>
+      </div>
+      <div class="wx-cell between">
+        <span class="wx-cell-label">性别</span>
+        <div class="wx-seg" id="segMeGender">
+          <button type="button" data-v="f">女</button>
+          <button type="button" data-v="m">男</button>
+        </div>
+      </div>
+      <div class="wx-cell">
+        <label for="meAge">年龄</label>
+        <input id="meAge" type="number" min="10" max="100" placeholder="27" />
+      </div>
+      <div class="wx-cell">
+        <label for="meBirthday">生日</label>
+        <input id="meBirthday" type="text" maxlength="12" placeholder="月-日，比如 3-21" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="wx-settings-tip">
+      改完点下面的按钮保存；每个好友下次开口就知道你的新资料了。
+    </div>
+    <div class="wx-settings-actions">
+      <button class="wx-btn-primary" id="btnMeSave">保存</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 加好友 ==================== -->
+<section class="screen overlay wx-settings" id="addFriendPanel" hidden>
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseAddFriend" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong>添加好友</strong></div>
+  </header>
+  <div class="wx-settings-body">
+    <div class="wx-group-title">自己捏一个</div>
+    <div class="wx-group">
+      <div class="wx-item" id="btnAddBlank" role="button" tabindex="0">
+        <div class="wx-avatar item blank">✎</div>
+        <div class="wx-item-body">
+          <div class="wx-item-top"><span class="wx-item-name">从空白开始</span></div>
+          <div class="wx-item-sub">名字、年龄、职业、性格都由你定</div>
+        </div>
+      </div>
+    </div>
+    <div class="wx-group-title">预设人格（点一下就能聊，之后还能改）</div>
+    <div class="wx-group" id="addFriendList"></div>
+    <div class="wx-settings-tip">
+      每个好友都有自己的记忆、人设和好感度，互相不干涉；<br />
+      内置时间是所有好友共用的。
+    </div>
+  </div>
+</section>
+
 <!-- ==================== 聊天页 ==================== -->
 <section class="screen" id="screen-chat">
 
