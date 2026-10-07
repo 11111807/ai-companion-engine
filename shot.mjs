@@ -257,6 +257,32 @@ const CASES = [
       tap(app, '.wx-tab[data-tab="me"]');
     },
   },
+  {
+    name: '15-mood',
+    w: 390, h: 844,
+    seed: {
+      chat: [
+        ...CHAT,
+        { role: 'user', content: '（她推门进来，手里拎着两杯奶茶）', ts: NOW - 60e3, narr: true },
+        { role: 'assistant', content: '诶？你怎么知道我想喝这个', ts: NOW - 40e3 },
+        { role: 'assistant', content: '不过你今天怎么这么晚才回来', ts: NOW - 30e3 },
+      ],
+      profile: { msgCount: 320, affection: 68, mood: { joy: 10, love: 15 }, moodAt: NOW - 60e3 },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: () => {},
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
+  {
+    name: '16-narration-input',
+    w: 390, h: 844,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herRelation: '恋人', personaDone: true } },
+    setup: (app) => {
+      app.$('#narrInput').value = '她愣了一下，把脸转过去';
+      app.$('#narrInput').dispatchEvent(new app.window.Event('input', { bubbles: true }));
+    },
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });
