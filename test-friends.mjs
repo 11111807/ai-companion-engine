@@ -335,6 +335,53 @@ console.log('\n[8] 我的资料是全局的（每个好友都看得到）...');
   check('⭐ 聊天时她看得到我的职业（用户档案里那份）', /后端开发/.test(sys));
 }
 
+console.log('\n[9] 老数据自动迁移成"小雨"这个好友（这条最要紧，丢了就不可挽回）...');
+{
+  // 模拟老用户：只有那三个扁平 key，**没有任何 personas 索引**
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': [msg('user', '我们认识三年了', 20), msg('assistant', '嗯 我记得', 19)],
+      'xiaoyu.profile.v1': {
+        msgCount: 500, facts: ['他养了只猫叫豆豆'], affection: 78, affectionBase: 60,
+      },
+      'xiaoyu.config.v1': { herName: '小雨', personaDone: true, herRelation: '恋人', herAge: 20 },
+    },
+  });
+  windows.push(app.dom.window);
+  const $ = app.$;
+
+  const nav = JSON.parse(app.window.localStorage.getItem(PERSONAS_KEY) || 'null');
+  check('⭐ 打开了应用就自动建好了好友索引', !!nav && Array.isArray(nav.list));
+  check('索引里就一个人，id 是 default', nav.list.length === 1 && nav.list[0].id === DEFAULT_ID);
+  check('他成了当前聊天对象', nav.active === DEFAULT_ID);
+
+  $('#btnBack').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  check('⭐ 消息页里能看到"小雨"', app.$$('#msgList .wx-item').some(
+    (e) => /小雨/.test(e.textContent)), app.$$('#msgList .wx-item').map((e) => e.textContent.trim()).join(' / '));
+
+  app.$$('#msgList .wx-item')[0].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  check('点进去能打开', !$('#screen-chat').hidden);
+  check('⭐ 老聊天记录一条没丢', app.$$('#messages .wx-row').length === 2,
+    String(app.$$('#messages .wx-row').length));
+  check('⭐ 顶栏还是小雨', $('#navName').textContent === '小雨', $('#navName').textContent);
+
+  $('#btnPlus').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  check('⭐ 好感度还在（78）', $('#affNum').textContent === '78', $('#affNum').textContent);
+  check('⭐ 关系还在（恋人）', $('#affRelationName').textContent === '恋人', $('#affRelationName').textContent);
+  $('#btnPlus').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+
+  $('#btnOpenMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  check('⭐ 记忆还在（豆豆）', /豆豆/.test($('#screen-memory').textContent));
+  check('人设还在（年龄 20）',
+    JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).herAge === 20);
+
+  check('⭐ 老数据还是在原来那三个 key 里（没有搬家 = 不可能搬丢）',
+    app.window.localStorage.getItem('xiaoyu.chat.v1').includes('三年')
+    && app.window.localStorage.getItem('xiaoyu.profile.v1').includes('豆豆'));
+  check('不会往新命名空间里乱写一份',
+    !app.window.localStorage.getItem('xiaoyu.persona.default.chat.v1'));
+}
+
 // ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
