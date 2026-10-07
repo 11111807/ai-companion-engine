@@ -322,6 +322,34 @@ console.log('\n[7] narration.js —— 把"最近写过的旁白"捞回去提醒
   check('有内容时列成"- （…）"', /- （笑）/.test(block) && /- （把手机扣在桌上）/.test(block));
   check('⭐ 明确要求换一个动作/角度', /换个\*\*动作或角度\*\*/.test(block) || /换个/.test(block));
   check('说明"同一批动作连着用会显得机械"', /连着用会显得机械/.test(block));
+
+  // ---- 空动作（用户："我问几点了，为什么会顿住呢…… 不能总是顿住、没躲这种无感情的描述"）----
+  check('⭐ 空动作词表里有他点名的那几个',
+    ['顿住', '愣住', '沉默', '没躲', '没说话'].every((w) => narration.LAZY_ACTIONS.includes(w)),
+    narration.LAZY_ACTIONS.slice(0, 6).join('、'));
+  check('⭐ 判定：空动作 → true',
+    narration.isLazyNarration('顿住') && narration.isLazyNarration('沉默了几秒')
+    && narration.isLazyNarration('没躲') && narration.isLazyNarration('笑了笑'));
+  check('判定：有画面的动作 → false',
+    !narration.isLazyNarration('抬头看了一眼墙上的钟')
+    && !narration.isLazyNarration('把被子往上拉了拉')
+    && !narration.isLazyNarration('低头去拽衣角'));
+  check('空值不炸', !narration.isLazyNarration('') && !narration.isLazyNarration(null));
+
+  const lazyBlock = narration.lazyNarrationBlock();
+  check('⭐ 提示词块里有反例（顿住）和正例（抬头看钟）',
+    /（顿住）/.test(lazyBlock) && /抬头看了一眼墙上的钟/.test(lazyBlock));
+  check('⭐ 给了可操作的判断标准："这句话能不能拍出来"',
+    /能不能拍出来/.test(lazyBlock) && /只有一个情绪词/.test(lazyBlock));
+  check('说明旁白的作用是让台词落到画面上',
+    /让这一句台词落到具体画面上/.test(lazyBlock));
+  check('正例按场景给（他在问时间 → 你看钟 / 摸手机）',
+    /他在问时间 → 你看钟/.test(lazyBlock));
+
+  check('⭐ 最近写过的旁白里有空动作时会额外点名',
+    /没有画面的空动作/.test(narration.narrationVaryBlock(['顿住', '抬头看钟'])));
+  check('没有空动作时不点名',
+    !/没有画面的空动作/.test(narration.narrationVaryBlock(['抬头看钟', '把被子拉了拉'])));
 }
 
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);process.exit(fail ? 1 : 0);

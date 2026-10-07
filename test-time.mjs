@@ -17,6 +17,8 @@ import {
   buildSystemPrompt,
   greeting,
   futureHint,
+  periodOf,
+  sceneTimeClash,
 } from './src/persona.js';
 import { bootApp, msg } from './boot.mjs';
 
@@ -354,6 +356,21 @@ console.log('\n[6] 系统提示词 ...');
   check('⭐ 动作要跟着情绪走（开心轻快 / 生气重 / 难过变小）',
     /动作还要\*\*跟着情绪走\*\*/.test(sys) && /原地蹦了两下/.test(sys)
     && /把杯子往桌上一放/.test(sys) && /把脸埋进胳膊里/.test(sys));
+
+  // ---- 旁白要"画龙点睛"（用户："不止是简单描述，而是画龙点睛身临其境的感觉"）----
+  check('⭐ 要求旁白"画龙点睛"（不是交代一下）',
+    /旁白要"画龙点睛"/.test(sys) && /让这一句台词落到一个具体画面上/.test(sys));
+  check('⭐ 要求动作接得上他刚说的那句话',
+    /动作要接得上他刚说的那句话/.test(sys) && /他在问时间 → 你看钟/.test(sys));
+  check('给了可操作标准："这句话能不能拍出来"',
+    /这句话能不能拍出来/.test(sys) && /能看见谁在动/.test(sys));
+  check('新增【别写"空动作"】块', /【别写"空动作"】/.test(sys));
+  check('⭐ 空动作块里点名了"顿住"这种（他实测遇到的）',
+    /（顿住）/.test(sys) && /等于白写/.test(sys));
+  check('空动作块里给了正例（抬头看了一眼墙上的钟 / 摸手机）',
+    /（抬头看了一眼墙上的钟）/.test(sys) && /把床头柜上的手机摸过来/.test(sys));
+  check('还给了"心虚/害羞"那一档的动作方向',
+    /心虚\/害羞 → 躲开视线/.test(sys) && /低头去拽衣角/.test(sys));
 }
 {
   // 冷热失衡的自查：正向表述不能少到被禁令淹没，否则模型又会演成爱答不理
@@ -480,6 +497,76 @@ console.log('\n[9] 时间旋钮：直接改年月日时分（用户反馈"按钮
   // 时间分隔条的文字要跟着改（不然跳一天之后还写着"3 小时前"）
   check('时间分隔条带上了时间戳（不然没法只改文字）',
     app.$$('#messages .wx-time').every((el) => el.dataset.ts));
+}
+
+// ---------------------------------------------------------------- [10] 时间感知
+console.log('\n[10] 时间感知：他问"几点了"，她得说对（含场景和时间打架的情况）...');
+{
+  // 用户实测：把内置时间拨到"早上八点多"，她回的还是"快十一点了"。
+  // 两个原因都要堵住：
+  //   1. 提示词从来没要求过"他问时间就照实念"，模型就凭感觉估了一个数
+  //   2. 场景描述里写着"晚上"（人设页写死的初始环境不随时间演变），
+  //      模型挑了个自洽的说法 —— 时间是"晚上"，于是"快十一点了"
+  check('periodOf 分时段', periodOf(at(10, 8, 0)) === '早上' && periodOf(at(10, 14, 0)) === '下午'
+    && periodOf(at(10, 20, 0)) === '晚上' && periodOf(at(10, 23, 30)) === '深夜');
+
+  const t = at(10, 8, 20);
+  const txt = describeTime(t);
+  check('时间描述里有"现在是几点"', /现在是 2026年3月10日 周二，早上8:20/.test(txt), txt.split('\n')[0]);
+  check('⭐ 还给了一句"可以照抄"的口语答案', /现在早上8点20/.test(txt), txt.split('\n')[1]);
+
+  // 用户自己在人设页写的初始环境：会带时间词，而它**不随时间演变**（sceneCustom）
+  const eveningScene = { id: 'dorm-evening', text: '晚上在宿舍，刚洗完澡，头发还没干，瘫在椅子上听歌。' };
+  const clash = sceneTimeClash(eveningScene.text, t);
+  check('⭐ 场景写"晚上"、时间却是早上 → 判定为冲突', /写着"晚上"/.test(clash) && /其实是早上/.test(clash),
+    clash.split('\n')[0]);
+  check('校正里点明了"你还在同一个地方"', /同一个地方/.test(clash));
+  check('校正里点名不许说"快十一点了""该睡了"', /快十一点了/.test(clash) && /该睡了/.test(clash));
+  check('对得上就不啰嗦（"早上"的场景 + 早上）',
+    sceneTimeClash('你刚醒，赖在床上不想起', t) === '');
+  check('场景里没有时间词就不管', sceneTimeClash('你在图书馆，摊着书', t) === '');
+  check('⭐ 不传时间戳就不判定（老调用点不该因此多出随机提示）',
+    sceneTimeClash(eveningScene.text, undefined) === '');
+
+  const sys = buildSystemPrompt({ name: '阿哲' }, {
+    scene: eveningScene, timeText: describeTime(t), now: t,
+  });
+  check('时间块的标题升级成"唯一权威"',
+    /【现在的时间】（这一行是\*\*唯一权威\*\*/.test(sys) && /比下面的场景描述更硬/.test(sys));
+  check('⭐ 明确要求"他问时间就照实说"', /他问时间就照实说/.test(sys) && /照着上面那一行念/.test(sys));
+  check('⭐ 明确禁止自己估一个数（点名"快十一点了"这种）',
+    /绝对不许自己估一个数/.test(sys) && /这比沉默还糟/.test(sys));
+  check('要求她此刻的状态和时间对得上（早上八点不该瘫在椅子上听歌）',
+    /早上八点该是刚醒/.test(sys) && /不该"瘫在椅子上听歌"/.test(sys));
+  check('⭐ 冲突时把校正写进了提示词', /现在其实是早上/.test(sys));
+  check('要求场景里提到的时间一律以时间为准',
+    /以这里为准/.test(sys) && /场景只说明你在\*\*哪儿\*\*/.test(sys));
+
+  // 端到端：真的通过 app 走一遍（虚拟时钟 → 提示词）
+  const offset = t - Date.now();
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': [msg('user', '在吗', 10), msg('assistant', '在呀', 9)],
+      'xiaoyu.profile.v1': {
+        msgCount: 20,
+        sceneId: 'dorm-evening',
+        sceneText: '晚上在宿舍，刚洗完澡，头发还没干，瘫在椅子上听歌。',
+        sceneAt: t - 3600000,
+        sceneCustom: true,     // 人设页写死的初始环境：不随时间演变（就是踩坑那种）
+      },
+      'xiaoyu.config.v1': { personaDone: true, clockOffset: offset, herRelation: '恋人' },
+    },
+    reply: '嗯',
+  });
+  windows.push(app.dom.window);
+  await app.send('几点了');
+
+  const sent = app.lastRequest().messages.find((m) => m.role === 'system').content;
+  check('⭐ 端到端：拨到早上八点后，提示词里真的是早上八点',
+    /早上8:20/.test(sent), (sent.match(/现在是 [^\n]*/) || [''])[0]);
+  check('⭐ 端到端：场景和时间打架时，校正也进了这一轮的提示词',
+    /现在其实是早上/.test(sent));
+  check('端到端：可抄的那句答案也在', /现在早上8点20/.test(sent));
 }
 
 for (const w of windows) { try { w.close(); } catch {} }

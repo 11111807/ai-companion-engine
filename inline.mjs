@@ -117,7 +117,8 @@ const EXPORTS = {
     'permanentReason', 'strengthLabel', 'strengthPercent', 'PERMANENT_HITS', 'OBSESSION_EMO',
     'halfLifeDays', 'FORGET_BELOW'],
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
-  narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock'],
+  narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock',
+    'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
     'fixConfigShape', 'fixProfileShape', 'sanitizeAffection', 'storageUsed', 'historyBytes',
@@ -226,9 +227,9 @@ export function inlineScript(dir = '') {
       const __profession = (function () { ${src.profession}
         return { ${pick(EXPORTS.profession)} };
       })();
-      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf) { ${src.persona}
+      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock) { ${src.persona}
         return { ${pick(EXPORTS.persona)} };
-      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf);
+      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock);
       const __api = (function () { ${src.api}
         return { ${pick(EXPORTS.api)} };
       })();

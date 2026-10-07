@@ -1391,6 +1391,9 @@ async function respond() {
     buildSystemPrompt(state.profile, {
       scene: currentScene(),
       timeText: currentTimeText(),
+      // 虚拟时钟的毫秒时间戳：persona.js 用它判断"场景里写的时间"和"现在"对不对得上
+      //（用户把人设页的初始环境写死成"晚上…"、之后又把时钟拨到早上，就会打架）
+      now: now(),
       summary: state.profile.summary,
       herName: herName(),
       persona: personaForPrompt(),
@@ -3315,6 +3318,7 @@ async function speakUp(reason) {
       buildSystemPrompt(state.profile, {
         scene: currentScene(),
         timeText: currentTimeText(),
+        now: now(),
         summary: state.profile.summary,
         herName: herName(),
         persona: personaForPrompt(),
