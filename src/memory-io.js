@@ -192,11 +192,50 @@ const squeeze = (s, n) => String(s)
   .slice(0, n);
 
 /**
+ * 事件词：出现了就说明这句在讲"发生了什么"，而不是闲聊。
+ *
+ * ⚠️ 为什么非要它：用户实测那个 bug 的根子就是**长度被当成了信息量**
+ * ——"随便聊聊第37条，今天天气还行"比"中午带你去公司开个会"还长。
+ * 光把"按长度全局排序"改成"按时间分段"还不够（段内取最长照样是闲聊赢），
+ * 所以段内用这个加权评分来挑。
+ */
+const EVENT = /(带|去|来|见|约|买|吃|喝|玩|送|接|开会|上班|下班|加班|上课|考试|面试|医院|学校|公司|机场|车站|搬家|修|签|定|说好|答应|计划|明天|后天|下周|周末|点开始|几点)/;
+
+/** 一句的"信息量"：长度打底，讲了事件就大幅加分 */
+const weight = (t) => t.length + (EVENT.test(t) ? 14 : 0);
+
+/**
+ * 从一串消息里挑 n 条，要求**覆盖整段时间**。
+ *
+ * 做法：按顺序均分成 n 段，每段里挑**信息量最高**（见 weight）的那句。
+ * 为什么不直接按长度全局排序：那样同一时段的几句长话就占满了名额，
+ * 一天里靠后的时段全被丢掉（用户实测：中午的事到晚上就想不起来）。
+ * 为什么不直接取前 n 条：那等于只记得住最早那半小时。
+ */
+function spread(items, n) {
+  if (items.length <= n) return items;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const from = Math.floor((i * items.length) / n);
+    const to = Math.max(from + 1, Math.floor(((i + 1) * items.length) / n));
+    const seg = items.slice(from, to);
+    out.push(seg.reduce((a, b) => (weight(b) > weight(a) ? b : a), seg[0]));
+  }
+  return out;
+}
+
+/**
  * 把一段对话压成一行要点，作为长期记忆。
  *
  * 老写法每轮只取 6 条用户消息、每条截 28 字 ——
  * 一轮聊 30 条的话会丢掉七成内容，这就是"她明明听我说过却像没听过"的原因之一。
- * 现在：全部保留，但按信息量取舍、字数压缩。
+ *
+ * ⚠️ 中间那版更坑（用户实测踩到的："中午带她去开会，晚上就忘了"）：
+ * 它按**长度**排序取前 8 条，理由是"长句信息量大"。
+ * 可是"随便聊聊第37条，今天天气还行"有 15 个字，
+ * "中午带你去公司开个会，一点开始"只有 14 个 —— **闲聊比事件长，事件就被丢掉了**。
+ * 现在改成：不排序、按时间顺序全都留（最多 MAX_POINT_ITEMS 条），
+ * 只把纯寒暄（嗯 / 好的 / 哈哈）滤掉。一天的对话本来就该整段留下来。
  *
  * @param {Array} msgs   只含 user/assistant 的消息
  * @param {object} opts
@@ -213,30 +252,91 @@ export function summarizeConversation(msgs, { since = 0, keepRecent = 6 } = {}) 
   if (slice.length < 4) return null;
 
   const hisAll = slice.filter((m) => m.role === 'user')
-    .map((m) => squeeze(m.content, 26))
+    .map((m) => squeeze(m.content, 34))
     .filter((t) => t.length >= 3 && !NOISE.test(t));
-
-  // 信息多的优先留下（长句通常信息量大），但保持原来的先后顺序
-  const his = hisAll.length <= 8
-    ? hisAll
-    : hisAll.map((t, i) => ({ t, i, w: t.length }))
-        .sort((a, b) => b.w - a.w)
-        .slice(0, 8)
-        .sort((a, b) => a.i - b.i)
-        .map((x) => x.t);
+  // 一段对话可能要压 250+ 条，而一行要点最多装 14 句。
+  // 直接取前 14 条 = 只记得住最早那半小时（中午、下午、晚上全丢），
+  // 所以按时间**均匀分段**、每段里挑最长的一句：覆盖一整天，又优先要信息量高的。
+  const his = spread(hisAll, MAX_POINT_ITEMS);
+  const dropped = Math.max(0, hisAll.length - his.length);
 
   // 她自己的话只在有关键内容时留一两句（避免整段都是寒暄）
   const her = slice.filter((m) => m.role === 'assistant')
-    .map((m) => squeeze(m.content, 18))
+    .map((m) => squeeze(m.content, 24))
     .filter((t) => t.length >= 5 && !NOISE.test(t))
     .slice(-2);
 
   const when = new Date(slice[0].ts || Date.now());
   const hh = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
   const line = `${when.getMonth() + 1}/${when.getDate()} ${hh} 那次聊到：他提到「${his.join('；')}」`
-    + (her.length ? `；你当时说「${her.join('；')}」` : '');
+    + (her.length ? `；你当时说「${her.join('；')}」` : '')
+    + (dropped ? `（还有 ${dropped} 句闲聊没记）` : '');
 
-  return { line: line.slice(0, 320), pointer: list.length - keepRecent };
+  return { line: line.slice(0, 400), pointer: list.length - keepRecent };
+}
+
+/** 一条要点里最多写几条他的消息（一条要点对应一段对话） */
+export const MAX_POINT_ITEMS = 14;
+
+// ---------------------------------------------------------------- 三点五、今天发生过什么
+
+/** 一条事件线里最多列几条 */
+export const TIMELINE_MAX = 14;
+
+/**
+ * "今天发生过什么" —— 只取**已经掉出完整上下文窗口**的那部分。
+ *
+ * 为什么需要它（用户实测）：
+ *   他中午带她去开会、下午带她出去，晚上她就"忘了中午开过会"。
+ *   原因是三件事同时发生：完整上下文只带最近 200 条（一天的对话装不下）、
+ *   要点又被按"长度"挑过一遍、关键词检索还得靠 query 命中"开会"才翻得出来。
+ *   所以这里单独给一块**当日事件线**：不需要命中关键词，天然覆盖"今天做过什么"。
+ *
+ * 只在"窗口之前还有今天的消息"时才输出 —— 都在窗口里的话没必要重复占 token。
+ *
+ * @param {Array} msgs      全部消息（user/assistant）
+ * @param {number} now      虚拟时钟（毫秒）
+ * @param {object} [opts]
+ * @param {number} [opts.before] 完整上下文从第几条开始（之前的都算"掉出窗口"）
+ * @param {number} [opts.max]    最多列几条
+ * @returns {string} 提示词片段；没有可说的返回空串
+ */
+export function todayTimeline(msgs, now, { before = 0, max = TIMELINE_MAX } = {}) {
+  const list = (Array.isArray(msgs) ? msgs : [])
+    .filter((m) => m.role === 'user' || m.role === 'assistant');
+  const head = Math.max(0, Math.min(Number(before) || 0, list.length));
+  if (!head) return '';
+
+  const d = new Date(now);
+  const isToday = (ts) => {
+    const x = new Date(Number(ts) || 0);
+    return x.getFullYear() === d.getFullYear() && x.getMonth() === d.getMonth()
+      && x.getDate() === d.getDate();
+  };
+
+  const rows = [];
+  for (let i = 0; i < head; i++) {
+    const m = list[i];
+    if (!isToday(m.ts)) continue;
+    const text = squeeze(m.content, 40);
+    if (!text || NOISE.test(text)) continue;
+    const at = new Date(Number(m.ts) || 0);
+    const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    const who = m.role === 'user' ? '他说' : '你说';
+    const row = `${hhmm} ${who}：${text}`;
+    // 连续重复的（他连发同一句）只留一条
+    if (rows.at(-1)?.endsWith(text)) continue;
+    rows.push(row);
+  }
+  if (!rows.length) return '';
+
+  const shown = rows.length > max ? rows.slice(-max) : rows;
+  return `【今天你们已经做过的事】（这部分掉出了上面的完整记录，但**都是今天真实发生过的**）
+${shown.map((r) => `- ${r}`).join('\n')}
+
+⚠️ 这是你**亲身经历**的，不是听说的：他要是晚上再提起来（"中午那个会""下午去的那儿"），
+你要接得上，别像没发生过；也别说得像刚听说（"啊？有吗"）。
+具体的细节（几点、穿的什么）可以记不清，但**事情本身和当时的感受要记得**。`;
 }
 
 // ---------------------------------------------------------------- 四、检索

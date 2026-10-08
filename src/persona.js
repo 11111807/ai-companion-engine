@@ -123,18 +123,26 @@ function pickFacts(userProfile = {}, limit = 16) {
 }
 
 /**
+ * 长记忆要点最多带几条进提示词。
+ *
+ * 从 16 提到 24：用户的实测场景是"一天聊了几百条，晚上忘了中午的事"，
+ * 而要点是那件事**唯一还可能留在提示词里的地方**（完整上下文早就把它挤出去了）。
+ * 一条要点最多 400 字，24 条 ≈ 9600 字，app.js 那边给它的预算也同步提到 8000。
+ */
+export const POINTS_LIMIT = 24;
+
+/**
  * 「她记得什么」这一段。
  *
  * 为什么单独抽出来：记忆页要能**原样预览**她这次读到的内容。
  * 如果预览和真正发出去的不是同一段代码生成的，就会骗人。
  */
-export function memoryBlock(userProfile = {}, summary = []) {
-  const facts = [
+export function memoryBlock(userProfile = {}, summary = []) {  const facts = [
     ...(userProfile.name ? [`他叫${userProfile.name}`] : []),
     ...pickFacts(userProfile, 16),
     ...(userProfile.lastMood ? [`上次聊天时他心情：${userProfile.lastMood}`] : []),
   ];
-  const points = (summary || []).slice(-16);
+  const points = (summary || []).slice(-POINTS_LIMIT);
 
   // 全新用户（什么都没有）就别硬塞这一段，否则她会"记得"一堆空话
   if (!facts.length && !points.length) return '';

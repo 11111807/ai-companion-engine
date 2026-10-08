@@ -72,7 +72,7 @@ const APP_REPLACEMENTS = [
   [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/storage\.js['"];?/,
     'const { CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES, readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection, storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig, decayProfileFacts, hoistManualEntries, pruneFactsMeta } = __storage;'],
   [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/memory-io\.js['"];?/,
-    'const { BIO_MAX_POINTS, parseMemoryBlock, applyMemory: applyMemoryTo, toggleObsession: toggleObsessionIn, parseBioPoints, applyUserBio: applyUserBioTo, summarizeConversation, resetRecallIndex, recallOldMessages: recallOld, recallBlock: recallBlockOf, parseHistoryText: parseHistory, normalizeTimestamps: stampImported, mergeFacts } = __memoryIO;'],
+    'const { BIO_MAX_POINTS, parseMemoryBlock, applyMemory: applyMemoryTo, toggleObsession: toggleObsessionIn, parseBioPoints, applyUserBio: applyUserBioTo, summarizeConversation, resetRecallIndex, recallOldMessages: recallOld, recallBlock: recallBlockOf, parseHistoryText: parseHistory, normalizeTimestamps: stampImported, mergeFacts, todayTimeline } = __memoryIO;'],
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/search\.js['"];?/,
     'const { SEARCH_MAX_HITS, searchMessages: searchIn, snippetOf } = __search;'],
   // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
@@ -127,7 +127,7 @@ const EXPORTS = {
   memoryIO: ['BIO_MAX_POINTS', 'parseMemoryBlock', 'applyMemory', 'toggleObsession',
     'parseBioPoints', 'toThirdPerson', 'applyUserBio', 'summarizeConversation',
     'resetRecallIndex', 'recallOldMessages', 'recallBlock', 'parseHistoryText',
-    'normalizeTimestamps', 'mergeFacts'],
+    'normalizeTimestamps', 'mergeFacts', 'todayTimeline', 'MAX_POINT_ITEMS', 'TIMELINE_MAX'],
   personas: ['PERSONAS_KEY', 'DEFAULT_ID', 'LEGACY_KEYS', 'keysFor', 'normalizeNav', 'orderedList',
     'findPersona', 'makeId', 'newPersona', 'addPersona', 'removePersona', 'setActive',
     'patchPersona', 'noteActivity', 'clearUnread', 'byRecency', 'migrate', 'activeKeys', 'keysOf'],

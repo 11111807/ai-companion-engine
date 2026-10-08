@@ -16,6 +16,7 @@
  */
 
 import { bootApp, msg } from './boot.mjs';
+import { summarizeConversation, todayTimeline, MAX_POINT_ITEMS } from './src/memory-io.js';
 
 /** 打开「这个好友的设置」页（聊天页 ··· → 设置）。这一轮新加的小工具。 */
 function openFriendSettingsVia(app) {
@@ -32,6 +33,7 @@ const check = (n, ok, extra = '') => {
 };
 
 const HOUR = 60;
+const NOW = Date.now();
 const windows = [];
 
 // ---------------------------------------------------------------- 1) 全新用户
@@ -270,6 +272,137 @@ console.log('\n[7] 要点压缩不丢信息 ...');
     !/「[^」]*在吗/.test(text), text.slice(0, 60));
 }
 
+// ---------------------------------------------------------------- 7.5) 一天的事
+console.log('\n[7.5] 用户实测："中午带她去开会，晚上就忘了" ...');
+{
+  // 这条 bug 是三个漏洞叠出来的：
+  //   ① 完整上下文只带最近 200 条（一天聊 260 条就装不下）
+  //   ② 要点按"长度"挑前 8 条 —— 闲聊比事件长，事件被挤掉
+  //   ③ 关键词检索要 query 命中"开会"才翻得出来，他晚上不会这么问
+  // 现在：预算放宽 + 要点按时间全留 + 单独的「今天你们已经做过的事」事件线。
+
+  // ① 要点不再按长度挑：把关键句混在更长的一堆闲聊里
+  const slice = [
+    { role: 'user', content: '中午带你去公司开个会，一点开始', ts: NOW - 600e3 },
+    { role: 'assistant', content: '啊我还没准备好', ts: NOW - 590e3 },
+  ];
+  for (let i = 0; i < 20; i++) {
+    slice.push({ role: 'user', content: `随便聊聊第${i}条，今天天气还行挺舒服的`, ts: NOW - (500 - i * 5) * 1000 });
+    slice.push({ role: 'assistant', content: '嗯嗯我知道啦', ts: NOW - (499 - i * 5) * 1000 });
+  }
+  const one = summarizeConversation(slice, { since: 0, keepRecent: 2 });
+  check('⭐ 关键事件不会被闲聊挤掉（旧代码按长度挑，正好把它挤掉了）',
+    /开个会/.test(one?.line || ''), (one?.line || '').slice(0, 50));
+  check('一条要点能装下的条数上限提到 14', MAX_POINT_ITEMS === 14, String(MAX_POINT_ITEMS));
+  check('装不下的会写明"还有 N 句闲聊没记"（不是悄悄丢）',
+    /还有 \d+ 句闲聊没记/.test(one?.line || ''), (one?.line || '').slice(-22));
+
+  // 一天压一次时，要点要**覆盖一整天**，不能只记得住最早那半小时
+  {
+    const long = [];
+    const t0 = NOW - 12 * 3600e3;
+    for (let i = 0; i < 200; i++) {
+      long.push({
+        role: 'user',
+        content: i === 0 ? '早上我去公司开了个会'
+          : i === 100 ? '中午带你去吃了个饭'
+            : i === 190 ? '晚上我们去看了电影'
+              : `随便聊聊第${i}条，今天天气还行挺舒服的`,
+        ts: t0 + i * 60e3,
+      });
+      long.push({ role: 'assistant', content: '嗯嗯我知道啦', ts: t0 + i * 60e3 + 30e3 });
+    }
+    const line = summarizeConversation(long, { since: 0, keepRecent: 2 })?.line || '';
+    check('⭐ 要点覆盖一整天（早上 / 中午 / 晚上都在）',
+      /早上我去公司开了个会/.test(line) && /中午带你去吃了个饭/.test(line) && /晚上我们去看了电影/.test(line),
+      line.slice(0, 80));
+  }
+
+  // ② 当日事件线：只取**掉出上下文窗口**的那部分
+  const day = [
+    { role: 'user', content: '中午带你去公司开个会，一点开始', ts: NOW - 9 * 3600e3 },
+    { role: 'assistant', content: '啊我还没准备好', ts: NOW - 9 * 3600e3 + 40e3 },
+    { role: 'user', content: '下午带你去江边走走', ts: NOW - 6 * 3600e3 },
+    { role: 'assistant', content: '好呀，我把外套带上', ts: NOW - 6 * 3600e3 + 30e3 },
+    { role: 'user', content: '晚上吃什么', ts: NOW - 60e3 },
+  ];
+  const tl = todayTimeline(day, NOW, { before: 4 });
+  check('⭐ 掉出窗口的今天的事会被单独列出来',
+    /【今天你们已经做过的事】/.test(tl) && /开个会/.test(tl) && /江边/.test(tl), tl.split('\n')[1]);
+  check('带上时刻和谁说的', /- \d\d:\d\d 他说：/.test(tl) && /你说：/.test(tl));
+  check('⭐ 明确要求"别像没发生过"',
+    /都是今天真实发生过的/.test(tl) && /别像没发生过/.test(tl));
+  check('明确允许细节记不清（和执念那套一致）',
+    /可以记不清/.test(tl) && /事情本身和当时的感受要记得/.test(tl));
+  check('都在上下文里时不重复占 token（before=0 → 空串）',
+    todayTimeline(day, NOW, { before: 0 }) === '');
+  check('跨天的旧事不进"今天"（昨天的消息不算）',
+    todayTimeline(day, NOW + 86400e3, { before: 4 }) === '');
+  check('纯寒暄不进事件线', !/嗯嗯/.test(todayTimeline([
+    { role: 'user', content: '嗯嗯', ts: NOW - 3600e3 },
+    { role: 'user', content: '好的', ts: NOW - 3000e3 },
+  ], NOW, { before: 2 })));
+  check('空值不炸', todayTimeline([], NOW, { before: 5 }) === '' && todayTimeline(null, NOW) === '');
+}
+
+console.log('\n[7.6] 一天 260 条时，中午那件事必须还在提示词里 ...');
+{
+  const MIN = 60 * 1000;
+  const history = [];
+  let ts = NOW - 9 * 60 * MIN;
+  const push = (role, content) => { history.push({ role, content, ts }); ts += 40 * 1000; };
+  push('user', '中午带你去公司开个会，一点开始');
+  push('assistant', '啊我还没准备好，等我换件衣服');
+  for (let i = 0; i < 260; i++) {
+    push(i % 2 ? 'assistant' : 'user', `随便聊聊第${i}条，今天天气还行`);
+  }
+  push('user', '晚上吃什么');
+
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': history,
+      'xiaoyu.profile.v1': { msgCount: history.length },
+      'xiaoyu.config.v1': { personaDone: true, herRelation: '恋人' },
+    },
+    reply: '嗯',
+  });
+  windows.push(app.dom.window);
+  await app.send('我们中午去干嘛了？');
+
+  const sent = app.lastRequest().messages;
+  const sys = sent.find((m) => m.role === 'system').content;
+  const hist = sent.filter((m) => m.role !== 'system');
+  check('⭐ 一天的完整对话装得下了（旧代码只带 200 条）', hist.length > 240, `${hist.length} 条`);
+  check('⭐ 中午那句就在上下文里（不用靠检索）',
+    hist.some((m) => String(m.content).includes('开个会')));
+
+  // 再试"连 400 条都装不下"的情况：这时候该由"今天做过的事"兜住
+  const many = [];
+  let t2 = NOW - 11 * 3600e3;
+  const push2 = (role, content) => { many.push({ role, content, ts: t2 }); t2 += 30 * 1000; };
+  push2('user', '中午带你去公司开个会，一点开始');
+  push2('assistant', '啊我还没准备好');
+  for (let i = 0; i < 470; i++) push2(i % 2 ? 'assistant' : 'user', `随便聊聊第${i}条，今天天气还行`);
+  push2('user', '晚上吃什么');
+
+  const app2 = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': many,
+      'xiaoyu.profile.v1': { msgCount: many.length },
+      'xiaoyu.config.v1': { personaDone: true, herRelation: '恋人' },
+    },
+    reply: '嗯',
+  });
+  windows.push(app2.dom.window);
+  await app2.send('我们中午去干嘛了？');
+  const sys2 = app2.lastRequest().messages.find((m) => m.role === 'system').content;
+  const hist2 = app2.lastRequest().messages.filter((m) => m.role !== 'system');
+  check('超过 400 条时窗口确实装不下（前提成立）',
+    !hist2.some((m) => String(m.content).includes('开个会')), `${hist2.length} 条`);
+  check('⭐ 这时由「今天你们已经做过的事」兜住：中午开会还在提示词里',
+    /【今天你们已经做过的事】/.test(sys2) && /开个会/.test(sys2));
+}
+
 // ---------------------------------------------------------------- 8) 她会主动开口
 console.log('\n[8] 她会主动开口 ...');
 {
@@ -337,11 +470,13 @@ console.log('\n[9] 从很久以前翻出相关的话 ...');
 {
   const history = [];
   const push = (role, content, minAgo) => history.push(msg(role, content, minAgo));
-  // 很久以前说过做饭（这条会被挤出"最近 200 条"的窗口）
+  // 很久以前说过做饭（这条要被挤出完整上下文窗口，检索才有意义）
   push('user', '我今天自己做饭，煮了个番茄鸡蛋面', 60 * 24 * 3);
   push('assistant', '听起来不错', 60 * 24 * 3 - 1);
-  // 中间夹 120 轮无关寒暄，把上面那条挤出上下文窗口
-  for (let i = 0; i < 120; i++) {
+  // 中间夹 260 轮无关寒暄 —— 注意要**真的超过上下文窗口**
+  //（这一轮窗口从 200 条放宽到 400 条：不足 400 条的话那条记录还在窗口里，
+  //  这条测试就变成假绿了）
+  for (let i = 0; i < 260; i++) {
     push('user', `随便聊聊第${i}条 今天天气还行`, 60 * 24 * 2 - i * 9);
     push('assistant', '嗯嗯', 60 * 24 * 2 - i * 9 - 1);
   }

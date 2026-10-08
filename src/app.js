@@ -65,7 +65,7 @@ import {
   parseBioPoints, applyUserBio as applyUserBioTo,
   summarizeConversation, resetRecallIndex, recallOldMessages as recallOld,
   recallBlock as recallBlockOf, parseHistoryText as parseHistory, normalizeTimestamps as stampImported,
-  mergeFacts,
+  mergeFacts, todayTimeline,
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
@@ -1226,11 +1226,23 @@ function applyAffectionDecay() {
  * 预算按后端分：
  *   - DeepSeek 新模型上下文 1M，而且前缀命中缓存后极便宜 → 给足，别让她失忆
  *   - 本地小模型只有 4k~8k 上下文 → 必须收着，否则又慢又胡说
+ *
+ * ⚠️ 云端这一档调过（用户实测"中午带她去开会、晚上就忘了"）：
+ * 以前是 40000 字 / **200 条**，而条数上限才是真凶 ——
+ * 一天聊 260 条时前面的 60 条被整段切掉，中午那件事就在里面。
+ * 现在放宽到 60000 字 / 400 条：一天的量装得下，也不会把上下文撑爆
+ *（提示词本身约 1 万字，60000 字中文大致 4~6 万 token，离 128k 还很远）。
  */
 function contextBudget() {
   const isNative = getProvider(state.config.provider)?.id === 'native-local';
-  return isNative ? { maxChars: 6000, maxMsgs: 30 } : { maxChars: 40000, maxMsgs: 200 };
+  return isNative ? { maxChars: 6000, maxMsgs: 30 } : { maxChars: 60000, maxMsgs: 400 };
 }
+
+/**
+ * 这次上下文从第几条开始（之前的部分已经掉出窗口）。
+ * 「今天发生过什么」那块要靠它来判断"哪些今天的事没进上下文"。
+ */
+let _ctxStart = 0;
 
 function buildChatContext(maxChars, maxMsgs) {
   const budget = contextBudget();
@@ -1238,11 +1250,12 @@ function buildChatContext(maxChars, maxMsgs) {
   if (maxMsgs === undefined) maxMsgs = budget.maxMsgs;
 
   const all = state.messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+  _ctxStart = all.length;
   if (!all.length) return [];
 
-  // 要点条目现在每条更长（最多 320 字），给它的预算也要跟着涨，
-  // 否则 memoryBlock 里塞了 16 条、实际只放得下几条。
-  const summaryBudget = state.profile.summary?.length ? 6000 : 0;
+  // 要点条目现在每条更长（最多 400 字），给它的预算也要跟着涨，
+  // 否则 memoryBlock 里塞了 20 多条、实际只放得下几条。
+  const summaryBudget = state.profile.summary?.length ? 8000 : 0;
   const recentBudget = Math.max(1600, maxChars - summaryBudget);
 
   // 从最新往回收集
@@ -1257,6 +1270,7 @@ function buildChatContext(maxChars, maxMsgs) {
     picked.unshift({ role: m.role, content: isNarration(m) ? narrLine(m.content) : m.content });
     used += len;
   }
+  _ctxStart = all.length - picked.length;
   return picked;
 }
 
@@ -1383,9 +1397,14 @@ async function respond() {
   // 用他最新说的那句话去更早的记录里翻相关内容。
   // 只取最后一条：把前面几条也拼进来会引入一堆噪音词
   //（实测"随便聊聊第N条 今天天气还行"这种重复模式会把真正的话题压下去）。
-  const query = String(
-    [...state.messages].reverse().find((m) => m.role === 'user')?.content || ''
-  );
+  //
+  // ⚠️ 但他最后一句可能特别短（"嗯""睡吧""在吗"）—— 那句里一个实词都没有，
+  //    检索等于没跑，中午说过的事就彻底想不起来了。
+  //    所以最后一句太短时，把倒数第二句也拼上（引入的噪音远小于"想不起来"）。
+  const userMsgs = state.messages.filter((m) => m.role === 'user');
+  const lastUser = String(userMsgs.at(-1)?.content || '');
+  const prevUser = String(userMsgs.at(-2)?.content || '');
+  const query = lastUser.length >= 6 || !prevUser ? lastUser : `${prevUser} ${lastUser}`;
 
   const systemPrompt = [
     buildSystemPrompt(state.profile, {
@@ -1414,10 +1433,15 @@ async function respond() {
     // 她最近写过的旁白 → 提醒她别原样重复（"旁白更灵动"靠这一半兜住，
     // 光在提示词里写"别重复"没用：她看不见自己前几轮写过什么）
     narrationVaryBlock(recentNarrations(state.messages)),
+    // 今天一起做过、但已经掉出上面那段完整记录的事（用户实测："中午带她去开会，
+    // 晚上就忘了"）。不需要命中关键词，天然的"当日事件线"。
+    todayTimeline(state.messages, now(), { before: _ctxStart }),
     `【记住前面聊过的】（很重要）
 上面给了你最近的完整对话记录。你必须**记得并沿用**这些内容：
 - 他刚说过的名字、地点、事情、情绪，不要当成没听过
 - 如果前面几轮你已经问过某个问题、说过某件事，不要再重复问一遍
+- **今天你们一起经历过的事**（他带你去哪了、你们做了什么）必须记得 ——
+  那是你们共同的经历，晚上再提起来你要接得上，不能像没发生过
 - **更不要问你已经知道答案的问题**。比如他天天说自己做饭，你还问"你做过饭吗"，
   那就跟失忆一样。不确定就先翻上面的记忆和对话，宁可说"你之前是不是提过…"
 - 话题要延续，不要突然换个不相干的话题
@@ -1428,6 +1452,8 @@ async function respond() {
 [[记忆]]{"name":"","facts":[],"mood":""}
 
 **必须记的**（哪怕你觉得是小事、是废话，也要记）：
+- **今天你们一起做过的事**：他带你去了哪、见了谁、做了什么（"中午带她去公司开会"）
+  —— 这类"共同的经历"最容易被晚上忘掉，一定要写进来
 - 他的日常习惯、反复做的事："每天下班自己做饭""晚上跑步""周末打游戏"
 - 他生活里反复出现的人和物：同事名字、宠物、常去的地方
 - 他的喜好和厌恶：爱吃什么、不吃什么、讨厌什么
