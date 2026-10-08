@@ -1,8 +1,12 @@
 /**
  * 一键跑全套测试。
  *
- * 为什么要有这份清单：以前每轮都是手敲一个 PowerShell 循环去遍历 test-*.mjs，
- * 容易漏（少写一个文件名就"全绿"了）。这里把清单固定下来，谁也漏不掉。
+ * 为什么要有它：以前每轮都是手敲一个 PowerShell 循环去遍历 test-*.mjs，
+ * 容易漏（少写一个文件名就"全绿"了）。
+ *
+ * ⚠️ 这里**故意不在代码里写死清单**：磁盘上有哪些 test-*.mjs 就跑哪些。
+ *    私有仓库那份是写死的（用来防漏），但那边有一行"没被列进来"的警告兜着；
+ *    这份是给读代码的人看的，多一张要手工同步的表只会多一个出错的地方。
  *
  * 这里测的都是**源码**。私有构建流程里还有一份产物自检
  *（把构建产物和源码逐字节比对，再用产物里的代码真跑一遍），
@@ -19,29 +23,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
-const FILES = [
-  'test-app.mjs',
-  'test-persona.mjs',
-  'test-profession.mjs',
-  'test-friends.mjs',
-  'test-mood.mjs',
-  'test-modules.mjs',
-  'test-time.mjs',
-  'test-memory.mjs',
-  'test-native.mjs',
-  'test-recall.mjs',
-  'test-habits.mjs',
-  'test-curve.mjs',
-  'test-ui.mjs',
-];
+const FILES = fs.readdirSync(root)
+  .filter((f) => /^test-.*\.mjs$/.test(f) && f !== 'test-all.mjs')
+  .sort();
 
-// 写死清单的同时校验一遍，防止以后新增了测试文件却忘了加进来
-const onDisk = fs.readdirSync(root).filter((f) => /^test-.*\.mjs$/.test(f) && f !== 'test-all.mjs');
-const missing = onDisk.filter((f) => !FILES.includes(f));
-if (missing.length) {
-  console.log(`警告：这些测试文件没被列进来：${missing.join(', ')}`);
-  FILES.push(...missing);
-}
+// 清单是扫出来的，所以理论上不会有"漏登记"——
+// 留这一句只是为了哪天改成写死清单时还能提醒到人。
+const gone = FILES.filter((f) => !fs.existsSync(path.join(root, f)));
+if (gone.length) console.log(`警告：清单里的这些文件不存在：${gone.join(', ')}`);
 
 let totalPass = 0;
 let totalFail = 0;
