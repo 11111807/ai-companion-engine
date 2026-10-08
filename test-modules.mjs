@@ -444,12 +444,16 @@ console.log('\n[10] storage.js —— API Key 是全局一份（所有好友共�
     endpoint: 'https://api.deepseek.com/chat/completions',
     herName: '小雨', herTraits: ['活泼'], burst: 3,
   };
-  check('全局字段就那四项（Key / 服务商 / 模型 / 接口）',
-    JSON.stringify(storage.GLOBAL_FIELDS)
-      === JSON.stringify(['apiKey', 'provider', 'model', 'endpoint']),
+  // 全局字段分两类：**部署级**（连哪个模型）+ **用户级**（"我"是谁，见 me.js）
+  check('全局字段：部署级四项 + 「我」的资料那几项',
+    storage.GLOBAL_FIELDS.slice(0, 4).join(',') === 'apiKey,provider,model,endpoint'
+    && ['userName', 'myEmoji', 'myAvatar', 'myJob', 'myAge', 'myGender', 'myBirthday']
+      .every((k) => storage.GLOBAL_FIELDS.includes(k)),
     storage.GLOBAL_FIELDS.join(','));
   const g = storage.pickGlobal(cfg);
-  check('pickGlobal 只挑出全局字段', Object.keys(g).length === 4 && g.apiKey === cfg.apiKey,
+  check('pickGlobal 只挑出全局字段（人设那几项不进去）',
+    Object.keys(g).every((k) => storage.GLOBAL_FIELDS.includes(k))
+    && g.apiKey === cfg.apiKey && !('herName' in g),
     Object.keys(g).join(','));
   check('没设过的字段不会被塞成空值', !('apiKey' in storage.pickGlobal({ provider: 'deepseek' })));
 

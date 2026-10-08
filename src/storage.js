@@ -72,10 +72,12 @@ export function writeJSON(key, value) {
  * 把 config 里那几项**全局字段**摘出来（Key / 模型 / 接口）。
  * 只取存在的键，不补默认值 —— 没设过就别往全局里写空值。
  */
-export function pickGlobal(config = {}) {
+export function pickGlobal(config) {
+  // ⚠️ 默认参数只在 undefined 时生效，传 null 进来会当场炸（测试正好抓到了这条）
+  const src = config && typeof config === 'object' ? config : {};
   const out = {};
   for (const k of GLOBAL_FIELDS) {
-    if (config[k] !== undefined) out[k] = config[k];
+    if (src[k] !== undefined) out[k] = src[k];
   }
   return out;
 }
