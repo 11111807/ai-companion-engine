@@ -473,6 +473,22 @@ const CASES = [
     },
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    // 用户的原话是"活泼程度是不是和对话不挂钩了" —— 那就让设置页**自己说清**
+    // 这一轮说多少：拨一下数字当场变。这张图钉的就是那一行别被排版挤掉。
+    name: '26-voice-hint',
+    w: 390, h: 900,
+    seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herName: '小雨', personaDone: true } },
+    setup: (app) => {
+      app.$('#btnMore').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      app.$('#actionSheet').querySelector('[data-act="settings"]')
+        .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      // 拨到「安静」，看数字是不是真的跟着走
+      const quiet = app.$$('#segTemp2 button').find((b) => Number(b.dataset.v) === 0.7);
+      quiet.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+    post: 'document.querySelector("#screen-friend .wx-settings-body").scrollTop = 545;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });

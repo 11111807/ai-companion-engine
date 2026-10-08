@@ -442,6 +442,46 @@ console.log('\n[9] 记录很长时只画最近一批（用户："点进小雨那
   check('她那条回复在最底下', /在的呀/.test(app.$$('#messages .wx-row').at(-1)?.textContent || ''));
 }
 
+// ---------------------------------------------------------------- 10) 话量挂钩
+console.log('\n[10] 「她怎么回」那三个设置真的挂到对话上（用户："选安静也会显得比较话痨"）...');
+{
+  // 以前「活泼程度」存的是 temperature，只改采样随机性 ——
+  // 提示词里"分成 2-3 条""每次至少一条 25~40 字"一个字都不变，所以她照样话痨。
+  // 现在三项一起算成【这一轮说多少】写进提示词，这一节就钉这件事。
+  const app = mkApp({ replies: ['[[思考]]嗯\n\n在的呀'] });
+  const $ = app.$;
+  tap(app, '#msgList .wx-item');
+  tap(app, '#btnMore');
+  tap(app, '#actionSheet [data-act="settings"]');
+  check('「她怎么回」页里能看见这一轮的话量', !!$('#styleHint'));
+
+  const seg = (sel, v) => {
+    const b = app.$$(`${sel} button`).find((x) => Number(x.dataset.v) === v);
+    b.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  };
+
+  // 默认：适中(250) + 3 条 + 正常(1.0) → 正常档基准 2 条 / 150 字
+  check('默认显示「正常 · 2 条 · 约 150 字」', $('#styleHint').textContent === '正常 · 2 条 · 约 150 字',
+    $('#styleHint').textContent);
+
+  seg('#segTemp2', 0.7);
+  check('⭐ 拨到「安静」，条数和字数当场就变（不是只改了个温度）',
+    $('#styleHint').textContent === '安静 · 1 条 · 约 90 字', $('#styleHint').textContent);
+
+  seg('#segLen2', 120);
+  check('再拨到「很短」，字数继续往下走',
+    $('#styleHint').textContent === '安静 · 1 条 · 约 45 字', $('#styleHint').textContent);
+
+  await app.send('在干嘛');
+  const sys = app.lastRequest().messages.find((m) => m.role === 'system').content;
+  check('⭐ 这些数字真的进了提示词（安静 + 很短 → 45 字 / 1 条）',
+    /一共 \*\*45 字左右\*\*/.test(sys) && /就发 \*\*1 条\*\*/.test(sys)
+    && /通常 1 条|这一轮就发 1 条/.test(sys),
+    (sys.match(/【这一轮说多少】[\s\S]{0,80}/) || [''])[0].replace(/\n/g, ' / '));
+  check('⚠️ 设置页那行提示没被写进配置里当台词（只是界面文案）',
+    app.$$('#messages .wx-row').every((r) => !/约 45 字/.test(r.textContent)));
+}
+
 // ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

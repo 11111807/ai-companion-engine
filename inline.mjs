@@ -43,62 +43,47 @@ const pick = (names) => names
   .map((n) => `${n}: (typeof ${n} === 'undefined' ? undefined : ${n})`)
   .join(', ');
 
-/** app.js 里那几条 import 要换成对 __xxx 的解构 */
-const APP_REPLACEMENTS = [
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/persona\.js['"];?/,
-    'const { CHARACTER, buildSystemPrompt, memoryBlock, greeting, pickScene, sceneHint, intimacyStage, HISTORY_LIMIT, evolveScene, describeTime, SCENES, SCENES_GENERIC, findScene, futureHint, TRAIT_PRESETS } = __persona;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/zodiac\.js['"];?/,
-    'const { SIGNS, signOf, parseBirthday, birthdayText, signSummary, zodiacBlock } = __zodiac;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/affection\.js['"];?/,
-    'const { LEVELS, levelOf, clamp: clampAffection, affectionBlock, regardBlock, drift: affectionDrift, decayForGap, affectionPercent, affectionSummary, suggestFromTraits, traitAffectionWarning } = __affection;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/relation\.js['"];?/,
-    'const { RELATIONS, RELATION_NAMES, findRelation, defaultAffectionFor, relationViewText, relationBlock, relationAffectionWarning, detectRelationSignal, relationMatches, relationTipText, relationShiftHint } = __relation;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/api\.js['"];?/,
-    'const { streamChat, DEFAULT_ENDPOINT, DEFAULT_MODEL, isLocalEndpoint, upgradeModel, isDeepSeekEndpoint } = __api;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/providers\.js['"];?/,
-    'const { PROVIDERS, getProvider, detectProvider, isLocalProvider } = __providers;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/recall\.js['"];?/,
-    'const { buildIndex, appendToIndex, search: recallSearch, formatHits } = __recall;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/habits\.js['"];?/,
-    'const { habitsBlock } = __habits;'],
-  // memory.js 的 import 是跨多行的，[^}]* 匹配不到，这里用 [^{}]*
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/memory\.js['"];?/,
-    'const { newMeta, touchMeta, decayFacts, isPermanent, isObsession, strengthLabel, strengthPercent, PERMANENT_HITS, OBSESSION_EMO } = __memory;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/emotion\.js['"];?/,
-    'const { intensityOf, intensityLabel, OBSESSION_EMO: EMO2 } = __emotion;'],
-  // 这一轮新拆出来的四个模块。都是跨多行 import，[^}]* 匹配不到，用 [^{}]*
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/format\.js['"];?/,
-    'const { esc, isEmojiOnly, timeText: formatTimeText, gapText } = __format;'],
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/storage\.js['"];?/,
-    'const { CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES, readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection, storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig, decayProfileFacts, hoistManualEntries, pruneFactsMeta, readGlobal, writeGlobal, omitGlobal } = __storage;'],
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/memory-io\.js['"];?/,
-    'const { BIO_MAX_POINTS, parseMemoryBlock, applyMemory: applyMemoryTo, toggleObsession: toggleObsessionIn, parseBioPoints, applyUserBio: applyUserBioTo, summarizeConversation, resetRecallIndex, recallOldMessages: recallOld, recallBlock: recallBlockOf, parseHistoryText: parseHistory, normalizeTimestamps: stampImported, mergeFacts, todayTimeline } = __memoryIO;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/search\.js['"];?/,
-    'const { SEARCH_MAX_HITS, searchMessages: searchIn, snippetOf } = __search;'],
-  // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/narration\.js['"];?/,
-    'const { splitNarration, recentNarrations, narrationVaryBlock } = __narration;'],
-  // 思考：读消息的停顿感 + 隐藏块 [[思考]] 的解析与格式要求
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/thought\.js['"];?/,
-    'const { parseThoughtBlock, thinkPause, thoughtPrompt } = __thought;'],
-  // 终局检测（旁白里写"一起老去/都死了"→ 弹窗问要不要删档）
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/ending\.js['"];?/,
-    'const { detectEnding, DREAM_NARRATION, ENDING_DIALOG } = __ending;'],
+/**
+ * app.js 里那几条 import 要换成对 __xxx 的解构。
+ *
+ * ⚠️ 这里以前是**一张手写的替换表**，它漏过一次：加了 zodiac / affection 之后
+ * 只改了 boot.mjs，于是 eval 到一句 `import ... from './zodiac.js'`，
+ * 报出来是 "Cannot use import statement outside a module" ——
+ * 和真正的原因差着十万八千里。现在按模块名自动推导：
+ * 新增模块、新增导出都不用再动这里。
+ *
+ * ⚠️ 正则里必须用 `[^{}]`：import 的名字列表不含花括号，**但可以跨行**
+ * （app.js 里好几个 import 都写成多行）。用 `[\s\S]*?` 会从第一条
+ * 一路吞到后面某条 `from '...'`，把中间的全删掉。
+ */
+const IMPORTS_FROM = (file) =>
+  new RegExp(`import\\s*\\{([^{}]*)\\}\\s*from\\s*['"]\\./${file}\\.js['"];?`, 'g');
+
+/** 文件名（路径里的写法）→ IIFE 里那个变量名，不一致的才要列 */
+const VAR_OF = {
+  'relation-views': 'relationViews', 'memory-io': 'memoryIO',
+  'friend-ui': 'friendUI', 'ending-ui': 'endingUI',
+};
+
+/** app.js 里 import 过的所有模块文件（不含 config.js，它要特殊处理） */
+const APP_MODULES = [
+  'persona', 'zodiac', 'affection', 'relation', 'api', 'providers', 'habits', 'memory',
+  'emotion', 'format', 'storage', 'presets', 'me', 'friend-ui', 'ending-ui', 'mood',
+  'personas', 'memory-io', 'search', 'narration', 'thought', 'voice', 'ending',
+];
+
+/** 把 `import { a, b as c } from './x.js'` 换成 `const { a, b: c } = __x;` */
+function rewriteImports(src) {
+  let out = src;
+  for (const file of APP_MODULES) {
+    out = out.replace(IMPORTS_FROM(file),
+      (_, names) => `const { ${names.replace(/\s+as\s+/g, ': ')} } = __${VAR_OF[file] || file};`);
+  }
   // config.js 只是一行地址常量。内联环境里给它一个空地址，
   // 效果就是"这个部署没配安装包"——和开源版的真实情况一致。
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/config\.js['"];?/,
-    "const { APK_URL } = { APK_URL: '' };"],
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/presets\.js['"];?/,
-    'const { PERSONA_PRESETS, findPreset, presetToForm } = __presets;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/me\.js['"];?/,
-    'const { ME_DEFAULTS, readMe, applyMe, meSummary } = __me;'],
-  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/friend-ui\.js['"];?/,
-    'const { createFriendUI } = __friendUI;'],
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/mood\.js['"];?/,
-    'const { MOODS, MOOD_KEYS, MAX_SHOWN, moodMeta, topMoods, decayMood, blend, normalize: normalizeMood, parseMoodBlock, guessMood, moodBlock, moodText } = __mood;'],
-  [/import\s*\{[^{}]*\}\s*from\s*['"]\.\/personas\.js['"];?/,
-    'const { PERSONAS_KEY, DEFAULT_ID, migrate, keysFor, activeKeys, orderedList, byRecency, findPersona, addPersona, removePersona, setActive, patchPersona, noteActivity, clearUnread } = __personas;'],
-];
+  return out.replace(IMPORTS_FROM('config'), "const { APK_URL } = { APK_URL: '' };");
+}
+
 
 /** 每个模块导出什么（两个测试入口用的并集，多给几个不影响） */
 const EXPORTS = {
@@ -125,7 +110,8 @@ const EXPORTS = {
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
   narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock',
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
-  thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt'],
+  thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt', 'recentThoughts', 'thoughtVaryBlock'],
+  voice: ['voiceOf', 'toneOf', 'voiceBlock', 'voiceHint'],
   ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
@@ -143,9 +129,33 @@ const EXPORTS = {
   presets: ['PERSONA_PRESETS', 'findPreset', 'presetToForm'],
   me: ['ME_DEFAULTS', 'readMe', 'meIsEmpty', 'meSignature', 'applyMe', 'meSummary'],
   friendUI: ['createFriendUI'],
+  endingUI: ['createEndingUI'],
   mood: ['MOODS', 'MOOD_KEYS', 'MAX_SHOWN', 'HALF_LIFE_MIN', 'FLOOR', 'moodMeta', 'decayMood',
     'blend', 'topMoods', 'parseMoodBlock', 'normalize', 'guessMood', 'moodBlock', 'moodText'],
 };
+
+/**
+ * 从**原文**里扫出这个模块导出了什么。
+ *
+ * 为什么要有它：下面那张 EXPORTS 表得手工维护，漏一次就是运行时
+ * "xxx is not a function"（这一轮就踩了：storage.js 加了 removeKeys 忘了登记）。
+ * 扫出来的和表里手写的**取并集**，所以两边都漏才出事。
+ *
+ * 只看 `export function/const/…` 和 `export { … }` 两种形态（这个项目的全部用法）。
+ */
+function exportsOf(code) {
+  const out = new Set();
+  for (const m of code.matchAll(/^export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+    out.add(m[1]);
+  }
+  for (const m of code.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+    for (const part of m[1].split(',')) {
+      const t = part.trim();
+      if (t) out.add((t.split(/\s+as\s+/)[1] || t).trim());
+    }
+  }
+  return [...out];
+}
 
 /**
  * 生成可以直接 `window.eval(...)` 的源码。
@@ -155,35 +165,48 @@ export function inlineScript(dir = '') {
   const base = dir ? path.resolve(dir) : root;
   const read = (p) => fs.readFileSync(path.join(base, p), 'utf8');
 
-  const src = {
-    zodiac: inlinable(read('src/zodiac.js')),
-    emotion: inlinable(read('src/emotion.js')),
-    format: inlinable(read('src/format.js')),
-    narration: inlinable(read('src/narration.js')),
-    thought: inlinable(read('src/thought.js')),
-    ending: inlinable(read('src/ending.js')),
-    search: inlinable(read('src/search.js')),
-    affection: inlinable(read('src/affection.js')),
-    relationViews: inlinable(read('src/relation-views.js')),
-    relation: inlinable(read('src/relation.js')),
-    profession: inlinable(read('src/profession.js')),
-    persona: inlinable(read('src/persona.js')),
-    api: stripExports(read('src/api.js')),
-    providers: stripExports(read('src/providers.js')),
-    recall: stripExports(read('src/recall.js')),
-    habits: stripExports(read('src/habits.js')),
-    memory: inlinable(read('src/memory.js')),
-    storage: inlinable(read('src/storage.js')),
-    memoryIO: inlinable(read('src/memory-io.js')),
-    personas: inlinable(read('src/personas.js')),
-    presets: inlinable(read('src/presets.js')),
-    me: inlinable(read('src/me.js')),
-    friendUI: inlinable(read('src/friend-ui.js')),
-    mood: inlinable(read('src/mood.js')),
+  // 每个模块读两遍：剥掉模块语法的进内联，原文留着扫导出（见 names）。
+  const raw = {};
+  const load = (key, file, strip = inlinable) => {
+    raw[key] = read(`src/${file}.js`);
+    return strip(raw[key]);
   };
 
+  const src = {
+    zodiac: load('zodiac', 'zodiac'),
+    emotion: load('emotion', 'emotion'),
+    format: load('format', 'format'),
+    narration: load('narration', 'narration'),
+    thought: load('thought', 'thought'),
+    voice: load('voice', 'voice'),
+    ending: load('ending', 'ending'),
+    search: load('search', 'search'),
+    affection: load('affection', 'affection'),
+    relationViews: load('relationViews', 'relation-views'),
+    relation: load('relation', 'relation'),
+    profession: load('profession', 'profession'),
+    persona: load('persona', 'persona'),
+    api: load('api', 'api', stripExports),
+    providers: load('providers', 'providers', stripExports),
+    recall: load('recall', 'recall', stripExports),
+    habits: load('habits', 'habits', stripExports),
+    memory: load('memory', 'memory'),
+    storage: load('storage', 'storage'),
+    memoryIO: load('memoryIO', 'memory-io'),
+    personas: load('personas', 'personas'),
+    presets: load('presets', 'presets'),
+    me: load('me', 'me'),
+    friendUI: load('friendUI', 'friend-ui'),
+    endingUI: load('endingUI', 'ending-ui'),
+    mood: load('mood', 'mood'),
+  };
+  for (const k of Object.keys(EXPORTS)) if (!(k in raw)) delete EXPORTS[k];
+
   let appSrc = read('src/app.js');
-  for (const [re, to] of APP_REPLACEMENTS) appSrc = appSrc.replace(re, to);
+  appSrc = rewriteImports(appSrc);
+
+  /** 这个模块要往外给的名字：手写表 ∪ 源码里扫出来的 */
+  const names = (key) => [...new Set([...(EXPORTS[key] || []), ...exportsOf(raw[key] || '')])];
 
   // 依赖顺序（被依赖的要先造出来，靠 IIFE 传参把用到的函数喂进去）：
   //   zodiac / emotion / format / search        ← 谁都不依赖
@@ -194,76 +217,82 @@ export function inlineScript(dir = '') {
   return `
     (function () {
       const __zodiac = (function () { ${src.zodiac}
-        return { ${pick(EXPORTS.zodiac)} };
+        return { ${pick(names('zodiac'))} };
       })();
       const __emotion = (function () { ${src.emotion}
-        return { ${pick(EXPORTS.emotion)} };
+        return { ${pick(names('emotion'))} };
       })();
       const __format = (function () { ${src.format}
-        return { ${pick(EXPORTS.format)} };
+        return { ${pick(names('format'))} };
       })();
       const __narration = (function () { ${src.narration}
-        return { ${pick(EXPORTS.narration)} };
+        return { ${pick(names('narration'))} };
       })();
       const __thought = (function () { ${src.thought}
-        return { ${pick(EXPORTS.thought)} };
+        return { ${pick(names('thought'))} };
+      })();
+      const __voice = (function () { ${src.voice}
+        return { ${pick(names('voice'))} };
       })();
       const __ending = (function () { ${src.ending}
-        return { ${pick(EXPORTS.ending)} };
+        return { ${pick(names('ending'))} };
       })();
       const __search = (function () { ${src.search}
-        return { ${pick(EXPORTS.search)} };
+        return { ${pick(names('search'))} };
       })();
       const __personas = (function () { ${src.personas}
-        return { ${pick(EXPORTS.personas)} };
+        return { ${pick(names('personas'))} };
       })();
       const __presets = (function () { ${src.presets}
-        return { ${pick(EXPORTS.presets)} };
+        return { ${pick(names('presets'))} };
       })();
       const __me = (function () { ${src.me}
-        return { ${pick(EXPORTS.me)} };
+        return { ${pick(names('me'))} };
       })();
       const __friendUI = (function () { ${src.friendUI}
-        return { ${pick(EXPORTS.friendUI)} };
+        return { ${pick(names('friendUI'))} };
+      })();
+      const __endingUI = (function () { ${src.endingUI}
+        return { ${pick(names('endingUI'))} };
       })();
       const __mood = (function () { ${src.mood}
-        return { ${pick(EXPORTS.mood)} };
+        return { ${pick(names('mood'))} };
       })();
       const __memory = (function (OBSESSION_EMO) { ${src.memory}
-        return { ${pick(EXPORTS.memory)} };
+        return { ${pick(names('memory'))} };
       })(__emotion.OBSESSION_EMO);
       const __affection = (function () { ${src.affection}
-        return { ${pick(EXPORTS.affection)} };
+        return { ${pick(names('affection'))} };
       })();
       const __relationViews = (function () { ${src.relationViews}
-        return { ${pick(EXPORTS.relationViews)} };
+        return { ${pick(names('relationViews'))} };
       })();
       const __relation = (function (levelOf, RELATION_VIEWS) { ${src.relation}
-        return { ${pick(EXPORTS.relation)} };
+        return { ${pick(names('relation'))} };
       })(__affection.levelOf, __relationViews.RELATION_VIEWS);
       const __profession = (function () { ${src.profession}
-        return { ${pick(EXPORTS.profession)} };
+        return { ${pick(names('profession'))} };
       })();
-      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt) { ${src.persona}
-        return { ${pick(EXPORTS.persona)} };
-      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt);
+      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt, voiceOf, voiceBlock) { ${src.persona}
+        return { ${pick(names('persona'))} };
+      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt, __voice.voiceOf, __voice.voiceBlock);
       const __api = (function () { ${src.api}
-        return { ${pick(EXPORTS.api)} };
+        return { ${pick(names('api'))} };
       })();
       const __providers = (function () { ${src.providers}
-        return { ${pick(EXPORTS.providers)} };
+        return { ${pick(names('providers'))} };
       })();
       const __recall = (function () { ${src.recall}
-        return { ${pick(EXPORTS.recall)} };
+        return { ${pick(names('recall'))} };
       })();
       const __habits = (function () { ${src.habits}
-        return { ${pick(EXPORTS.habits)} };
+        return { ${pick(names('habits'))} };
       })();
       const __storage = (function (newMeta, decayFacts, upgradeModel) { ${src.storage}
-        return { ${pick(EXPORTS.storage)} };
+        return { ${pick(names('storage'))} };
       })(__memory.newMeta, __memory.decayFacts, __api.upgradeModel);
       const __memoryIO = (function (buildIndex, appendToIndex, recallSearch, formatHits, newMeta, touchMeta, intensityOf, OBSESSION_EMO) { ${src.memoryIO}
-        return { ${pick(EXPORTS.memoryIO)} };
+        return { ${pick(names('memoryIO'))} };
       })(__recall.buildIndex, __recall.appendToIndex, __recall.search, __recall.formatHits, __memory.newMeta, __memory.touchMeta, __emotion.intensityOf, __emotion.OBSESSION_EMO);
       (function () { ${appSrc} })();
     })();

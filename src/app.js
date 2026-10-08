@@ -44,7 +44,7 @@ import {
   CFG_KEY, CHAT_KEY, PROFILE_KEY, QUOTA_BYTES,
   readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection,
   storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig,
-  decayProfileFacts, hoistManualEntries, pruneFactsMeta,
+  decayProfileFacts, hoistManualEntries, pruneFactsMeta, removeKeys,
   readGlobal, writeGlobal, omitGlobal,
 } from './storage.js';
 import {
@@ -52,6 +52,9 @@ import {
 } from './presets.js';
 import { ME_DEFAULTS, readMe, applyMe, meSummary } from './me.js';
 import { createFriendUI } from './friend-ui.js';
+// 终局确认 / 删档 / 删好友 / 撤销刚建的空好友 —— 和 friend-ui 一样用工厂模式。
+// （app.js 的行数上限抬了太多次，上一轮就写明这一块要搬出去。）
+import { createEndingUI } from './ending-ui.js';
 import {
   MOODS, MOOD_KEYS, MAX_SHOWN, moodMeta, topMoods, decayMood, blend, normalize as normalizeMood,
   parseMoodBlock, guessMood, moodBlock, moodText,
@@ -70,7 +73,11 @@ import {
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
-import { parseThoughtBlock, thinkPause } from './thought.js';
+import { parseThoughtBlock, thinkPause, recentThoughts, thoughtVaryBlock } from './thought.js';
+// 「她怎么回」那三个设置（长度 / 条数 / 活泼程度）要真的进提示词。
+// 以前它们只当 max_tokens、切分条数和 temperature 用，提示词里一个字都没变 ——
+// 所以"安静"也会话痨（见 voice.js）。
+import { voiceOf, voiceHint } from './voice.js';
 import { detectEnding, DREAM_NARRATION, ENDING_DIALOG } from './ending.js';
 import { APK_URL } from './config.js';
 
@@ -734,6 +741,21 @@ function personaForPrompt() {
 /** 场景池：设过人设的用通用池，否则用学生池 */
 const scenePool = () => (personaIsCustom() ? SCENES_GENERIC : SCENES);
 
+/**
+ * 「她怎么回」那三个设置 → voice.js 要的形状。
+ *
+ * 提示词里"这一轮说多少字、分几条"全靠它算出来的 ——
+ * 所以设置页里改一下，下一次回复当场就不一样（不用重开聊天）。
+ */
+const styleNow = () => ({
+  maxTokens: state.config.maxTokens,
+  burst: state.config.burst,
+  temperature: state.config.temperature,
+});
+
+/** 当前这套设置对应的劲头（设置页要显示"安静 · 1 条 · 约 90 字"） */
+const voiceNow = () => voiceOf(styleNow());
+
 /** 当前好感度（可能为 null = 没设过）。注意是浮点：普通聊天每句只涨 0.4 */
 const affection = () => (state.profile.affection == null ? null : state.profile.affection);
 
@@ -1263,148 +1285,28 @@ function pushUserMessage(msg) {
 }
 
 // ---------------------------------------------------------------- 终局（删档确认）
+//
+// 这一块（两轮确认弹窗 / 剧情里触发的删档 / 删好友 / 撤销刚建的空好友）
+// 已经搬去 **src/ending-ui.js** —— app.js 的行数上限抬了太多次，
+// 上一轮明确写了"下一轮必须拆，照 friend-ui.js 的工厂模式"。
+// 下面只剩接线：调用点（终局的 respond 分支、设置页的删除键、关人设页时撤销）
+// 都还按老名字来，行为一个字没变。
 
-/**
- * 二次确认弹窗。返回 true = 他点了"是"。
- *
- * 为什么不用系统 confirm()：按钮配色本身就是内容 ——
- * "是"必须是灰的（危险动作不该长得像推荐），"否"必须是绿的。
- * 而且这里要连着问两遍，系统弹窗在手机上也太重。
- */
-function openConfirm({ title, body, yes = '是', no = '否' }) {
-  return new Promise((resolve) => {
-    const mask = $('#confirmMask');
-    if (!mask) { resolve(false); return; }
-    $('#confirmTitle').textContent = title;
-    $('#confirmBody').textContent = body;
-    const btnYes = $('#confirmYes');
-    const btnNo = $('#confirmNo');
-    btnYes.textContent = yes;
-    btnNo.textContent = no;
+let endingUI = null;
 
-    const done = (val) => {
-      btnYes.removeEventListener('click', onYes);
-      btnNo.removeEventListener('click', onNo);
-      mask.removeEventListener('click', onMask);
-      mask.hidden = true;
-      resolve(val);
-    };
-    const onYes = () => done(true);
-    const onNo = () => done(false);
-    const onMask = (e) => { if (e.target === mask) done(false); };   // 点空白 = 取消
-    btnYes.addEventListener('click', onYes);
-    btnNo.addEventListener('click', onNo);
-    mask.addEventListener('click', onMask);
-    mask.hidden = false;
+function initEndingUI() {
+  endingUI = createEndingUI({
+    state, $, toast, herName, keysFor, removeKeys, findPersona, removePersona, setActive,
+    savePersonaIndex, loadPersona, resetChatRender, resetRecallIndex, fixProfileShape,
+    renderHerIdentity, renderAffection, renderClock, renderChat, renderMoodStrip,
+    renderNav, updateDataInfo, showTab, DEFAULT_ID, ENDING_DIALOG,
   });
 }
 
-/**
- * 终局流程：问两遍，都点头才删档。
- * 任何一步选"否 / 我还没想好" → 不删档，并记下"要把这段剧情圆成一场梦"。
- *
- * @param {string} hit 命中的那句（只用于提示，不影响流程）
- * @returns {Promise<boolean>} 真的删了才返回 true
- */
-async function runEndingFlow(hit) {
-  const first = await openConfirm({
-    ...ENDING_DIALOG.first,
-    body: `${ENDING_DIALOG.first.body}\n\n（你写的是"${String(hit).slice(0, 16)}"）`,
-  });
-  if (!first) {
-    state.pendingDream = true;
-    toast('那就当它是一场梦', 2000);
-    return false;
-  }
-  const second = await openConfirm(ENDING_DIALOG.second);
-  if (!second) {
-    state.pendingDream = true;
-    toast('好，那就不动它', 2000);
-    return false;
-  }
-  deleteFriend(state.nav.active || DEFAULT_ID);
-  showTab('msgs');     // 好友删了 → 回到消息列表（那里会提示"请添加好友"）
-  return true;
-}
-
-/**
- * 设置页里的「删除这个好友」。
- *
- * 和"终局"那套**故意做得不一样**（用户要求）：那边是两轮确认 + 一句"是否忘记
- * 你们的一切"，因为它是剧情触发、要拦住手滑；这里是他在设置页里主动点的，
- * **一轮确认**就够 —— 文案也直说"删除"。
- */
-async function confirmDeleteFriend() {
-  const name = herName();
-  const ok = await openConfirm({
-    title: `删除「${name}」？`,
-    body: '她的聊天记录、她记得的事、好感度都会一起清掉，人也会从好友列表里消失。\n'
-      + '**只有这一个**，别的 AI 好友不受影响。',
-    yes: '删除',
-    no: '取消',
-  });
-  if (!ok) return;
-  deleteFriend(state.nav.active || DEFAULT_ID);
-}
-
-/**
- * 忘记你们的一切 —— 按用户的要求，**连这个好友一起删掉**：
- * 「删档后直接删掉好友，如果此时消息页没有对话框，好友页没有好友，注明，请添加好友」。
- *
- * 终局那条路和设置页的「删除」都走它。
- *
- * 三步：
- *   1. 把这个好友的三个存档 key 从 localStorage 里删掉（真删，不是留着）
- *   2. 从好友索引里摘掉（默认好友也能删，打 noDefault 标记，见 personas.js）
- *   3. 还有别人 → 切过去停在消息列表；一个都没有 → 清空内存 + 显示"请添加好友"
- */
-function deleteFriend(id) {
-
-  // 1) 真删存档。默认好友用的是老 key，其他好友是各自的命名空间 —— 都由 keysFor 给。
-  const keys = keysFor(id);
-  for (const k of [keys.config, keys.chat, keys.profile]) {
-    try { localStorage.removeItem(k); } catch {}
-  }
-
-  // 2) 从索引里摘掉（allowDefault：这条路径就是要把默认好友也删掉）
-  const r = removePersona(state.nav, id, { allowDefault: true });
-  state.nav = r.nav;
-
-  resetRecallIndex();
-  resetChatRender();
-
-  if (state.nav.active) {
-    // 还有别的好友 → 切过去，停在消息列表
-    loadPersona(state.nav.active);
-    savePersonaIndex();
-    renderHerIdentity();
-    renderAffection();
-    renderClock();
-    renderChat();
-    renderMoodStrip();
-    renderNav();
-    updateDataInfo();
-    toast('已经把她忘了。', 2400);
-    return;
-  }
-
-  // 3) 一个好友都没有了：把内存清成"全新用户"，界面显示"请添加好友"
-  state.messages = [];
-  for (const key of Object.keys(state.profile)) delete state.profile[key];
-  fixProfileShape(state.profile, []);
-  for (const key of ['herName', 'herEmoji', 'herTraits', 'herTraitNote', 'herRelation',
-    'herBirthday', 'herAge', 'herJob', 'userJob', 'userBio', 'herGender']) {
-    delete state.config[key];
-  }
-  state.config.personaDone = false;
-  state.config.userName = '';
-  savePersonaIndex();
-  renderChat();
-  renderMoodStrip();
-  renderNav();
-  updateDataInfo();
-  toast('已经忘了。想继续的话，先添加一个好友。', 3200);
-}
+const openConfirm = (opts) => endingUI.openConfirm(opts);
+const runEndingFlow = (hit) => endingUI.runEndingFlow(hit);
+const confirmDeleteFriend = () => endingUI.confirmDeleteFriend();
+const deleteFriend = (id) => endingUI.deleteFriend(id);
 
 // ---------------------------------------------------------------- 关系变了？
 
@@ -1705,8 +1607,9 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
     {
       role: 'user',
       content: '（系统提示：你刚才忘了写"内心"那一块。现在**只**输出那一块，'
-        + '格式是：[[思考]]你此刻对下一句话的心里话（20~50 字，第一人称，'
-        + '不写动作、不复述他已经知道的话）。不要重复你说过的台词，不要写别的。）',
+        + '格式是：[[思考]]你此刻对下一句话的心里话（10~50 字，第一人称，'
+        + '不写动作、不复述他已经知道的话，也**别用"他…了，我应该…"这种句式** —— '
+        + '像人一样随口想一下）。不要重复你说过的台词，不要写别的。）',
     },
   ];
   const args = {
@@ -1731,10 +1634,14 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
         onDelta(piece) { out += piece; },
       });
     }
-    // 她可能直接回了心里话、也可能还是带着 [[思考]] 标记 —— 两种都要能取到
+    // 她可能直接回了心里话、也可能还是带着 [[思考]] 标记 —— 两种都要能取到。
+    // ⚠️ 兜底（cut.clean）拿到的其实是**她的台词**，所以只取第一行、并且去掉
+    //    括号旁白 —— 不然整段台词会被当成"内心"存下来，下一轮又原样列进提示词里
+    //    （实测会把她的旁白在【你最近写过的旁白】旁边重复列一遍）。
     const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
-    const thought = cut.thought || cut.clean;
-    return String(thought || '').replace(/\[\[[^\]]*\]\]/g, '').trim().slice(0, 120);
+    const thought = cut.thought || cut.clean.split('\n').find((s) => s.trim()) || '';
+    return String(thought).replace(/\[\[[^\]]*\]\]/g, '').replace(/[（(][^）)]*[）)]/g, '')
+      .trim().slice(0, 60);
   } catch {
     return '';
   }
@@ -1772,6 +1679,8 @@ async function respond() {
       now: now(),
       // 要不要让她写"思考"块（全局设置里能关）——关掉的话提示词里连要求都不加
       showThink: state.config.showThink !== false,
+      // 他调的「她怎么回」→ 这一轮的话量预算（多少字、分几条）
+      style: styleNow(),
       summary: state.profile.summary,
       herName: herName(),
       persona: personaForPrompt(),
@@ -1792,6 +1701,9 @@ async function respond() {
     // 她最近写过的旁白 → 提醒她别原样重复（"旁白更灵动"靠这一半兜住，
     // 光在提示词里写"别重复"没用：她看不见自己前几轮写过什么）
     narrationVaryBlock(recentNarrations(state.messages)),
+    // 她最近几次的内心 → 别每轮都是同一个句式（用户："思考也不能太机械了"）。
+    // 和旁白同一个道理：模型看不见自己前面写过什么，得点名它才换。
+    thoughtVaryBlock(recentThoughts(state.messages)),
     // 今天一起做过、但已经掉出上面那段完整记录的事（用户实测："中午带她去开会，
     // 晚上就忘了"）。不需要命中关键词，天然的"当日事件线"。
     todayTimeline(state.messages, now(), { before: _ctxStart }),
@@ -2166,6 +2078,10 @@ function syncSettingsUI() {
           : '最近一轮：她没写 ✗ —— 已经自动补过一次了；要是补的也没有，'
             + '多半是模型不遵守格式（手机本地的小模型尤其容易）';
   }
+  // 这三项一起算出来的"话量预算"，直接显示出来 ——
+  // 用户的原话是"活泼程度是不是和对话不挂钩了"，那就让他**看得见它挂钩**：
+  // 拨一下这里数字当场就变（下一次回复也跟着变）。
+  if ($('#styleHint')) $('#styleHint').textContent = voiceHint(voiceNow());
   updateDataInfo();
 }
 
@@ -2980,38 +2896,13 @@ function closePersona() {
 }
 
 /**
- * 记下"正在新建好友"（friend-ui 建完人之后调）。
- * 用户在人设页点返回时要用它把这个人撤掉。
+ * 记下"正在新建好友" / 撤掉刚建的空壳。
+ *
+ * 实现在 src/ending-ui.js —— 和删档是同一类事（都要动存档 + 好友索引 + 重画），
+ * friend-ui 建完人之后调 notePendingNew，人设页点返回时调 cancelPendingNew。
  */
-function notePendingNew(fromId, newId) {
-  state.pendingNew = { from: fromId, id: newId };
-}
-
-/** 撤掉刚建的那个好友（人设页点返回时走这条） */
-function cancelPendingNew() {
-  const p = state.pendingNew;
-  state.pendingNew = null;
-  if (!p) return;
-
-  // 连它的存储一起清掉（三个 key）
-  const k = keysFor(p.id);
-  for (const key of [k.config, k.chat, k.profile]) {
-    try { localStorage.removeItem(key); } catch {}
-  }
-  const r = removePersona(state.nav, p.id);
-  state.nav = r.nav;
-  if (findPersona(state.nav, p.from)) state.nav = setActive(state.nav, p.from);
-  savePersonaIndex();
-  loadPersona(state.nav.active);
-  resetChatRender();
-  renderHerIdentity();
-  renderAffection();
-  renderChat();
-  renderNav();
-  $('#screen-persona').classList.remove('show');
-  showTab('msgs');
-  toast('好，那就不加了', 1800);
-}
+const notePendingNew = (fromId, newId) => endingUI.notePendingNew(fromId, newId);
+const cancelPendingNew = () => endingUI.cancelPendingNew();
 
 /** 把人设页里的内容写进配置（不负责关页面） */
 function applyPersona() {
@@ -3827,17 +3718,20 @@ async function speakUp(reason) {
         timeText: currentTimeText(),
         now: now(),
         showThink: state.config.showThink !== false,
+        // 主动开口也按他调的劲头来（以前这里连条数都写死 2 条）
+        style: styleNow(),
         summary: state.profile.summary,
         herName: herName(),
         persona: personaForPrompt(),
-      me: myMe(),
-      mood: moodBlock(currentMood()),
+        me: myMe(),
+        mood: moodBlock(currentMood()),
         affection: affection(),
         affectionBase: state.profile.affectionBase,
         relation: state.config.herRelation,
       }),
       // 主动开口那一轮她也会写旁白，所以这条同样要提醒（别复读上一个动作）
       narrationVaryBlock(recentNarrations(state.messages)),
+      thoughtVaryBlock(recentThoughts(state.messages)),
       `【现在的情况】
 ${situation}
 
@@ -3860,7 +3754,8 @@ ${situation}
 - 看到/听到什么好玩的想分享
 - 实在没得说，就简单一句"在忙吗""人呢"——也比硬接那句话好
 
-说 1-2 条短消息就行，别一次堆太多。可以带一两个括号旁白（动作/神态），
+说 ${voiceNow().lines} 条短消息就行（他调的是这个数），别一次堆太多。
+可以带一两个括号旁白（动作/神态），
 它们会单独显示成一个小框，不占你说的条数 —— 但**别只有旁白**，
 旁白后面一定要有话，最后一条必须是话。`,
     ].join('\n\n');
@@ -3900,7 +3795,8 @@ ${situation}
     // let：她没写的话下面会补一次（见 askForThought）
     let innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
 
-    let parts = replyItems(thoughtCut.clean, 2);
+    // 条数按他调的那个来（这里以前写死 2 条，"安静"档也照样连发两条）
+    let parts = replyItems(thoughtCut.clean, voiceNow().lines);
     // 主动开口那一轮同理：只发动作不说话，等于白开口一次
     // 这一轮已经补过一次请求了吗 —— **最多补一次**，两个兜底不能叠着花两次钱
     let repaired = false;
@@ -4508,6 +4404,7 @@ function init() {
   if (hasFriend && !freshUser && !willSpeak) bootGreeting();   // 只有全新用户才需要开场白
   renderChat();
   initFriendUI();       // 好友界面要用到上面那些函数，所以在这儿初始化
+  initEndingUI();       // 终局/删档那一套同理（它也要 renderChat、loadPersona…）
   bindEvents();
   setupDownloadEntry();
   renderAffection();

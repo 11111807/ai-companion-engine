@@ -270,6 +270,24 @@ export function writeConfig(config, key = CFG_KEY) {
   try { localStorage.setItem(key, JSON.stringify(config)); return true; } catch { return false; }
 }
 
+/**
+ * 删掉几个 key（删好友 / 撤销刚建的空好友时用）。
+ *
+ * 为什么不让调用方自己 removeItem：那样"谁碰 localStorage"就散到各处去了，
+ * 而这里是**唯一**该碰它的模块。删档是不可逆动作，集中一处也更好审。
+ *
+ * @param {string[]} keys
+ * @returns {number} 真删掉几个
+ */
+export function removeKeys(keys = []) {
+  let n = 0;
+  for (const k of keys) {
+    if (!k) continue;
+    try { localStorage.removeItem(k); n++; } catch {}
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- 存盘前的整理
 
 /**

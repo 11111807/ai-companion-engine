@@ -21,6 +21,7 @@ import * as memoryIO from './src/memory-io.js';
 import * as narration from './src/narration.js';
 import * as thought from './src/thought.js';
 import * as ending from './src/ending.js';
+import * as voice from './src/voice.js';
 
 let pass = 0;
 let fail = 0;
@@ -36,7 +37,7 @@ const hasDom = () => typeof document !== 'undefined' || typeof localStorage !== 
 console.log('\n[0] 每个模块都能脱离 app.js 和浏览器单独加载 ...');
 {
   check('这个测试跑在 node 里（没有 document / localStorage）', !hasDom());
-  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending })) {
+  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending, voice })) {
     check(`${name}.js 能单独 import`, !!mod && Object.keys(mod).length > 0,
       `${Object.keys(mod).length} 个导出`);
   }
@@ -393,10 +394,13 @@ console.log('\n[8] thought.js —— 读消息的停顿感 + 她的内心想法 
   check('⭐ 和旁白分工：动作写在（）里（那是旁白）',
     /写\*\*心事\*\*不写\*\*动作\*\*/.test(block) && /那是旁白/.test(block));
   check('给了写错的反例（写成动作）', /把手机翻过来扣在桌上/.test(block));
-  check('给了写对的正例（下一句话背后的心事）',
-    /他又说"没事"了/.test(block) && /先别追问/.test(block));
+  check('⭐ 把"策略腔 / 同一个句式"点名成反例（用户："不能太机械了"）',
+    /他在问我时间，我应该回答几点/.test(block) && /每轮都是同一个句式/.test(block));
+  check('⭐ 给了好几个不同的想事情角度，让她轮着挑（不再是一个句式模板）',
+    ['第一反应', '小得意', '联想到自己', '犹豫', '走神', '小打算'].every((k) => block.includes(k))
+    && /换一个角度/.test(block));
   check('强调它常常和说出口的话不一样', /和你说出口的话\*\*不一样\*\*/.test(block));
-  check('给了长度（20~50 字）', /20~50 字/.test(block));
+  check('给了长度（10~50 字）', /10~50 字/.test(block));
   check('⭐ 是"每一轮都要有"的语气（不再是"可以不写"）',
     /每一轮都要有/.test(block) && !/可以不写|整块不写/.test(block));
   // 用户特意要求的：思考和情绪**不能绑定** —— 不是"有情绪才有思考"
@@ -404,6 +408,32 @@ console.log('\n[8] thought.js —— 读消息的停顿感 + 她的内心想法 
     /和情绪是两件事/.test(block) && /不靠情绪驱动/.test(block)
     && /不是"有情绪才有思考"/.test(block));
   check('举了"心情平平也在想事情"的例子（这菜有点咸）', /这菜有点咸/.test(block));
+
+  // 和旁白同一套：把"最近几次真写过什么"摆回去，模型才会换新的
+  //（用户的原话："思考内容要灵动一点，每次都是……太机械了"）
+  const msgs = [
+    { role: 'assistant', content: '嗯', think: '他又说没事了…先别追问' },
+    { role: 'user', content: '在吗' },
+    { role: 'assistant', content: '在', think: '他又说没事了…先别追问' },   // 重复的只留一条
+    { role: 'assistant', content: '好', think: '有点想他了' },
+    { role: 'assistant', content: '哦' },                                   // 没写内心 → 不算
+  ];
+  const rec = thought.recentThoughts(msgs);
+  check('⭐ 捞出她最近几次的内心（去重、不重复列）',
+    rec.length === 2 && rec[0] === '他又说没事了…先别追问' && rec[1] === '有点想他了',
+    rec.join(' | '));
+  check('没写过就当没有（新用户不会塞一段空的进提示词）',
+    thought.recentThoughts([]).length === 0 && thought.recentThoughts(null).length === 0
+    && thought.thoughtVaryBlock([]) === '');
+  const vary = thought.thoughtVaryBlock(['有点想他了', '诶他居然记得']);
+  check('⭐ 去重块里列了原文，并明确"别再来一遍"',
+    vary.includes('有点想他了') && vary.includes('诶他居然记得') && /别再来一遍/.test(vary));
+  check('去重块要求换角度、且不许硬编',
+    /换个角度/.test(vary) && /别为了不一样硬编/.test(vary));
+  check('最多列 6 条（别把提示词撑爆）',
+    thought.recentThoughts(
+      Array.from({ length: 20 }, (_, i) => ({ role: 'assistant', think: `想法${i}` })),
+    ).length === 6);
 }
 
 // ---------------------------------------------------------------- 9) ending.js

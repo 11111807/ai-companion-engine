@@ -23,6 +23,13 @@ function openFriendSettingsVia(app) {
   app.$('#actionSheet').querySelector('[data-act="settings"]')
     .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 }
+
+/** 打开「我 → 改我的资料」（"我的职业"那一格现在住在这里） */
+function openMeEditVia(app) {
+  const tap = (el) => el.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  tap(app.$('#tabbar').querySelector('[data-tab="me"]'));
+  tap(app.$('#meCard').querySelector('[data-me="edit"]'));
+}
 import {
   DOMAINS, domainOf, knowledgeBlock, userFieldBlock, professionBlock,
 } from './src/profession.js';
@@ -233,48 +240,47 @@ console.log('\n[4.1] 默认人设（老用户）完全不受影响 ...');
 }
 
 // ---------------------------------------------------------------- 5) 界面
-console.log('\n[5] 人设页里的「你的职业 / 专业」...');
+console.log('\n[5] 「职业 / 专业」那一格（全局一份，不在人设页）...');
 {
   const app = bootApp();
   windows.push(app.dom.window);
   const $ = app.$;
 
-  check('人设页有「你的职业 / 专业」这一格', !!$('#perUserJob'));
-  check('有配套的快捷标签', !!$('#chipsUserJob'));
-  check('有解释这一格干什么用的说明', /同行/.test($('#perUserJob').parentElement.textContent));
+  // 用户后来要求过："我的资料是全局设置的，每个好友知道我的资料是一致的，
+  // 不需要在建立好友时的人格界面再填一遍我的职业。"
+  // 所以这一格从人设页**挪到了**「我 → 改我的资料」，这里两边都钉一下。
+  check('⭐ 人设页里不再有这一格（挪走了，别再搬回来）',
+    !$('#perUserJob') && !$('#chipsUserJob'));
+
+  openMeEditVia(app);
+  check('「我的资料」页里有「职业 / 专业」', !!$('#meJob'));
+  check('有解释这一格干什么用的说明', /同行/.test($('#meJob').parentElement.textContent));
   check('她的职业那一格也说明了"填了她就懂这行"',
     /不会张口就是/.test($('#perJob').parentElement.textContent));
 
-  // 点标签能填进去
-  const chips = app.$$('#chipsUserJob .wx-chip');
-  check('标签画出来了', chips.length >= 8, String(chips.length));
-  const prog = chips.find((c) => c.dataset.chip === '程序员');
-  check('标签里有「程序员」', !!prog);
-  prog.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  check('点一下标签就把值填进输入框', $('#perUserJob').value === '程序员', $('#perUserJob').value);
-  check('填完那个标签会变成选中态',
-    app.$$('#chipsUserJob .wx-chip').find((c) => c.dataset.chip === '程序员')?.classList.contains('on'));
+  // 填进去 → 落进**全局**那一份，而不是某个好友的配置
+  $('#meJob').value = '临床医学';
+  $('#btnMeSave').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  const g = JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1') || '{}');
+  check('⭐ 存进全局那一份（每个好友都读得到）', g.myJob === '临床医学', String(g.myJob));
+  const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1') || '{}');
+  check('不再往好友的配置里塞一份副本', !cfg.userJob, String(cfg.userJob));
 
-  // 打开人设页时要把存过的值填回表单
+  // 重新打开要填回来（从全局读）
   const app2 = bootApp({
     seed: {
       'xiaoyu.chat.v1': [msg('user', '在吗', 10), msg('assistant', '在呀', 9)],
-      'xiaoyu.config.v1': { herJob: '视觉传达设计', userJob: '会计', personaDone: true },
+      'xiaoyu.config.v1': { herJob: '视觉传达设计', personaDone: true },
+      'xiaoyu.global.v1': { myJob: '会计' },
     },
   });
   windows.push(app2.dom.window);
-  openFriendSettingsVia(app2);
-  app2.$('#btnOpenPersonaFromFriend').dispatchEvent(new app2.window.MouseEvent('click', { bubbles: true }));
-  check('重新打开人设页，她的职业填回来了', app2.$('#perJob').value === '视觉传达设计',
-    app2.$('#perJob').value);
-  check('重新打开人设页，你的职业也填回来了', app2.$('#perUserJob').value === '会计',
-    app2.$('#perUserJob').value);
-  check('你的职业那个标签也回到选中态',
-    app2.$$('#chipsUserJob .wx-chip').find((c) => c.dataset.chip === '会计')
-      ?.classList.contains('on'));
+  openMeEditVia(app2);
+  check('重新打开「我的资料」，你的职业填回来了', app2.$('#meJob').value === '会计',
+    app2.$('#meJob').value);
 }
 
-console.log('\n[5.1] 存进配置、并且真的发给了模型 ...');
+console.log('\n[5.1] 存进全局、并且真的发给了模型 ...');
 {
   const app = bootApp({
     seed: {
@@ -285,19 +291,12 @@ console.log('\n[5.1] 存进配置、并且真的发给了模型 ...');
       'xiaoyu.config.v1': {
         herJob: '视觉传达设计', herAge: 20, herGender: 'f', personaDone: true,
       },
+      // 他那一行现在住在全局那一份里
+      'xiaoyu.global.v1': { myJob: '临床医学' },
     },
     reply: '嗯',
   });
   windows.push(app.dom.window);
-
-  // 走真实路径：先打开人设页（表单会被现有配置填满），再填这一格、再点「开始聊天」。
-  // ⚠️ 不能跳过"打开"这一步：applyPersona 是照表单读的，表单空着就会把配置清空。
-  openFriendSettingsVia(app);
-  app.$('#btnOpenPersonaFromFriend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  app.$('#perUserJob').value = '临床医学';
-  app.$('#btnPersonaStart').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
-  check('你的职业写进配置了', cfg.userJob === '临床医学', String(cfg.userJob));
 
   await app.send('今天好累');
   const sys = app.lastRequest().messages.find((m) => m.role === 'system').content;
@@ -307,13 +306,14 @@ console.log('\n[5.1] 存进配置、并且真的发给了模型 ...');
   check('⭐ 但"不许只说一句不懂"也在', /一句"我不懂"就完了也不行/.test(sys));
 }
 
-console.log('\n[5.2] 「恢复默认」要把这一格一起清掉 ...');
+console.log('\n[5.2] 「恢复默认」只清她的人设，不动「我的资料」（那是全局的）...');
 {
   const app = bootApp({
     seed: {
       'xiaoyu.chat.v1': [msg('user', '在吗', 10), msg('assistant', '在呀', 9)],
       'xiaoyu.profile.v1': { msgCount: 60 },
-      'xiaoyu.config.v1': { herJob: '设计师', userJob: '程序员', personaDone: true },
+      'xiaoyu.config.v1': { herJob: '设计师', personaDone: true },
+      'xiaoyu.global.v1': { myJob: '程序员' },
     },
   });
   windows.push(app.dom.window);
@@ -322,8 +322,8 @@ console.log('\n[5.2] 「恢复默认」要把这一格一起清掉 ...');
   app.$('#btnPersonaReset').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   const cfg = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
   check('她的职业清空了', !cfg.herJob || cfg.herJob === '');
-  check('你的职业也清空了', !cfg.userJob || cfg.userJob === '');
-  check('表单里也空了', app.$('#perUserJob').value === '', app.$('#perUserJob').value);
+  check('⭐ 我自己的职业还在（全局的，不跟着人设一起清）',
+    JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1')).myJob === '程序员');
 }
 
 // ---------------------------------------------------------------- 收尾
