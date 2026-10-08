@@ -290,6 +290,52 @@ console.log('\n[7] 删掉一个还有别的 → 切到别人，不停在空页�
     app.window.localStorage.getItem('xiaoyu.persona.other.chat.v1') !== null);
 }
 
+// ---------------------------------------------------------------- 8) 输入框能用
+console.log('\n[8] 输入框一定要能点、能输入（用户："下面的文字框点击不了了，输入法也弹不出来"）...');
+{
+  // 根因：autoGrow() 用 scrollHeight 量高度，而**隐藏元素的 scrollHeight 是 0** ——
+  // 这一轮"启动页 = 消息列表"之后，聊天页一开始是 hidden 的，
+  // init 里那次 autoGrow 就把 textarea 设成了 0 高：框还在（外层有 min-height），
+  // 但点上去没反应、手机上输入法也弹不出来。旁边的旁白框是 <input>、高度写死，
+  // 所以它还能正常输入 —— 正好是用户描述的那个"一个能用一个不能用"。
+  const app = mkApp();
+  const $ = app.$;
+  const h = () => $('#input').style.height;
+
+  check('⭐ 启动时（聊天页还藏着）输入框高度不是 0', h() !== '0px' && h() !== '', h());
+  check('⭐ 输入框没有被禁用', $('#input').disabled === false);
+  check('输入框不是只读', $('#input').readOnly === false);
+
+  tap(app, '#msgList .wx-item');
+  check('⭐ 进聊天页后高度也不是 0', h() !== '0px', h());
+  check('能聚焦（手机上就是"弹得出输入法"）', (() => {
+    $('#input').focus();
+    return app.window.document.activeElement === $('#input');
+  })());
+  check('旁白框也能聚焦', (() => {
+    $('#narrInput').focus();
+    return app.window.document.activeElement === $('#narrInput');
+  })());
+
+  // 发一轮之后必须解锁（生成中会临时 disable，收尾一定要还回来）
+  await app.send('你好呀');
+  check('⭐ 她说完之后输入框恢复可用（没卡在"生成中"）',
+    $('#input').disabled === false);
+  check('发送键也不再被"生成中"藏着',
+    $('#btnSend').hidden === true || $('#input').value.trim() === '');
+
+  // 终局弹窗取消之后，输入框照样能用（防"弹窗把界面卡住"）
+  type(app, '#narrInput', '很多年后我们一起老去，最后都离开了这个世界');
+  tap(app, '#btnSend');
+  await app.sleep(60);
+  check('终局弹窗确实弹出来了', $('#confirmMask').hidden === false);
+  tap(app, '#confirmMask');       // 点空白处 = 取消
+  await app.sleep(60);
+  check('点空白能取消弹窗', $('#confirmMask').hidden === true);
+  for (let i = 0; i < 300 && $('#input').disabled; i++) await app.sleep(30);
+  check('⭐ 取消之后输入框仍然可用', $('#input').disabled === false);
+}
+
 // ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

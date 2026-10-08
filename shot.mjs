@@ -151,6 +151,7 @@ const CASES = [
   },
   {
     name: '05-memory',
+    intoChat: false,
     w: 390, h: 1000,
     seed: {
       chat: CHAT,
@@ -180,12 +181,14 @@ const CASES = [
   },
   {
     name: '06-persona-top',
+    intoChat: false,
     w: 390, h: 1000,
     seed: { config: { personaDone: false } },
     setup: personaSetup,
   },
   {
     name: '07-persona-bottom',
+    intoChat: false,
     w: 390, h: 1000,
     seed: { config: { personaDone: false } },
     setup: personaSetup,
@@ -193,12 +196,14 @@ const CASES = [
   },
   {
     name: '08-settings-top',
+    intoChat: false,
     w: 390, h: 1000,
     seed: { profile: { msgCount: 320 }, config: { personaDone: true, apiKey: 'sk-test' } },
     setup: (app) => { app.$('#screen-settings').classList.add('show'); },
   },
   {
     name: '09-settings-bottom',
+    intoChat: false,
     w: 390, h: 1000,
     seed: { profile: { msgCount: 320 }, config: { personaDone: true, apiKey: 'sk-test' } },
     setup: (app) => { app.$('#screen-settings').classList.add('show'); },
@@ -215,6 +220,7 @@ const CASES = [
   // ---- 多好友：消息页 / 好友页 / 我 ----
   {
     name: '11-msgs',
+    intoChat: false,
     w: 390, h: 844,
     seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herRelation: '恋人', personaDone: true } },
     setup: (app) => {
@@ -228,6 +234,7 @@ const CASES = [
   },
   {
     name: '12-friends',
+    intoChat: false,
     w: 390, h: 844,
     seed: { chat: CHAT, profile: { msgCount: 320 }, config: { herRelation: '恋人', personaDone: true } },
     setup: (app) => {
@@ -239,6 +246,7 @@ const CASES = [
   },
   {
     name: '13-add-friend',
+    intoChat: false,
     w: 390, h: 844,
     seed: { chat: CHAT, profile: { msgCount: 320 }, config: { personaDone: true } },
     setup: (app) => {
@@ -249,6 +257,7 @@ const CASES = [
   },
   {
     name: '14-me',
+    intoChat: false,
     w: 390, h: 700,
     seed: {
       chat: CHAT, profile: { msgCount: 320 },
@@ -297,6 +306,7 @@ const CASES = [
   },
   {
     name: '18-global-settings',
+    intoChat: false,
     w: 390, h: 700,
     seed: { profile: { msgCount: 320 }, config: { personaDone: true, apiKey: 'sk-test' } },
     setup: (app) => { app.$('#screen-settings').classList.add('show'); },
@@ -427,6 +437,11 @@ for (const c of CASES) {
   };
   const app = bootApp({ seed, reply: c.reply || '好呀 那你早点睡' });
   try {
+    // ⚠️ 这一轮起"退出后台再进来停在消息列表"，所以**要聊天页的场景得先点进去** ——
+    //    否则所有图都会变成消息页（踩过）。不想进聊天页的场景写 intoChat: false。
+    if (c.seed.chat?.length && c.intoChat !== false) {
+      app.$('#msgList .wx-item')?.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    }
     await c.setup(app);
     await app.sleep(30);
     names.push(dumpHtml(app, c.name, c.w, c.h, c.post));

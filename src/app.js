@@ -1004,10 +1004,24 @@ function scrollToLatest(force = false) {
 
 // ---------------------------------------------------------------- 输入栏
 
+/**
+ * 消息输入框跟着内容长高。
+ *
+ * ⚠️ 量不到高度时**绝不能写成 0px**（用户实测踩过，而且是我自己引入的）：
+ *   `scrollHeight` 对**隐藏元素**永远是 0，而这一轮起"启动页 = 消息列表"，
+ *   聊天页 #screen-chat 一开始是 hidden 的 —— init 里那句 autoGrow() 于是把
+ *   textarea 设成 0 高。表现是：输入框看着还在（外层 .wx-input-wrap 有
+ *   min-height 和 padding），但点上去没反应、手机上的输入法也弹不出来；
+ *   而旁边的旁白框是 <input>、高度由 CSS 定死，所以它**还能正常输入** ——
+ *   正好就是用户描述的那个症状。
+ *   所以：量不到就退回一行的高度（16.5px × 1.4 ≈ 23），页面一可见、
+ *   或者他一开始打字，input 事件会把真实高度补上。
+ */
 function autoGrow() {
   const el = $('#input');
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+  const h = el.scrollHeight;
+  el.style.height = (h > 0 ? Math.min(h, 100) : 23) + 'px';
 }
 
 function syncSendBtn() {
