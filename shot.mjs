@@ -445,6 +445,34 @@ const CASES = [
     },
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    // ⭐ 复现"记录一多，思考块被压成一条灰线"（用户截图里的那个现象）。
+    //    关键不是思考块本身，而是**够多的消息把聊天区撑爆** ——
+    //    `.wx-messages` 是 flex column，子项默认可压缩，而思考块有 overflow:hidden。
+    name: '25-think-squash',
+    w: 390, h: 844,
+    intoChat: false,
+    seed: {
+      chat: [
+        ...Array.from({ length: 40 }, (_, i) => ({
+          role: i % 2 ? 'assistant' : 'user',
+          content: i % 2 ? `嗯嗯，我知道啦，第${i}条` : `随便聊聊第${i}条，今天挺忙的`,
+          ts: NOW - (60 - i) * 60e3,
+        })),
+        { role: 'user', content: '想和你说个事情', ts: NOW - 40e3 },
+        {
+          role: 'assistant', content: '不急，你想好了再说', ts: NOW - 20e3,
+          think: '他这么吞吞吐吐的…是不是工作上出事了。算了，先别追着问', thinkMs: 1600,
+        },
+      ],
+      profile: { msgCount: 320, affection: 66, affectionBase: 60 },
+      config: { herRelation: '朋友', personaDone: true },
+    },
+    setup: (app) => {
+      app.$('#msgList .wx-item').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    },
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });

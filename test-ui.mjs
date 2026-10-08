@@ -123,6 +123,15 @@ console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
     $('#messages .wx-think-body')?.textContent);
   check('收起时看不见内容（CSS 上是 display:none）',
     app.window.getComputedStyle($('.wx-think-body')).display === 'none');
+  // ⭐ 用户实测："中间有一条灰线，应该是思考吧，但是只有一条线" ——
+  //    聊天区是 flex column，子项默认可压缩；记录一多（内容超过容器高度）时
+  //    浏览器把这一块压扁，而它又有 overflow:hidden → 只剩上面那条 1px 边框。
+  //    所以必须 flex: 0 0 auto。
+  check('⭐ 思考块不会被 flex 容器压扁（flex: 0 0 auto）', (() => {
+    const cs = app.window.getComputedStyle($('.wx-think'));
+    // jsdom 不一定展开 flex 缩写，所以两种读法都认
+    return cs.flexShrink === '0' || /0\s+0\s+auto/.test(cs.flex || '');
+  })(), app.window.getComputedStyle($('.wx-think')).flex);
   // 用户要的"思考 1s/2s"——显示真实耗时（含读消息的停顿 + 生成）
   check('⭐ 标题里带真实耗时（"思考 1.2 秒"这个样子）',
     /^💭 思考 \d+\.\d 秒$/.test($('#messages .wx-think-head').textContent.trim()),

@@ -325,6 +325,7 @@ body { background: var(--wx-bg); }
 /* 顶部"上面还有 N 条更早的"：首屏只画最近 200 条，更早的点它展开
    （用户反馈"小雨那个聊天框点进去会慢" —— 上千个气泡节点在手机上布局很贵） */
 .wx-more {
+  flex: 0 0 auto;               /* 同上：别被 flex 容器压扁 */
   margin: 10px auto 4px;
   padding: 5px 12px;
   width: fit-content;
@@ -342,8 +343,16 @@ body { background: var(--wx-bg); }
  *
  * 用户要求："把她的内心想法展示出来，用别的气泡做区分，可以下拉展开的"。
  * 收起时只有一行灰字（像截图那样），点一下展开 —— 不抢台词的视觉重心。
+ *
+ * ⚠️ `flex: 0 0 auto` 不是可选项：`.wx-messages` 是
+ *    `display:flex; flex-direction:column` —— 里面的子项**默认可被压缩**。
+ *    记录一多（内容超过容器高度）时，浏览器就会把这一块压扁，
+ *    而它又有 `overflow: hidden`，结果只剩上面那条 1px 边框：
+ *    用户看到的是"中间有一条灰线"，而不是"💭 思考 N 秒"。
+ *    （我自己的截图看不出来，因为那几个场景只有两三条消息、没有压缩压力。）
  */
 .wx-think {
+  flex: 0 0 auto;
   max-width: 76%;
   margin: 0 0 4px 56px;         /* 和她那侧的气泡左边对齐（头像宽 + 间隙） */
   border: 1px solid #ececec;
