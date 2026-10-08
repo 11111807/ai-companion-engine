@@ -378,12 +378,15 @@ const CASES = [
     w: 390, h: 844,
     seed: {
       chat: [
-        { role: 'assistant', content: '诶你终于回我了', ts: NOW - 120e3, think: '他今天怎么这么久才回我…是不是又在忙' },
+        // 第一种：只有思考 + 台词（**没有旁白** —— 用户说"旁白也可以没有，视情况而定"）
+        { role: 'assistant', content: '诶你终于回我了', ts: NOW - 120e3,
+          think: '他今天怎么这么久才回我…是不是又在忙', thinkMs: 1200 },
         { role: 'assistant', content: '你晚饭吃了没啊', ts: NOW - 110e3 },
         { role: 'user', content: '刚下班，还没吃', ts: NOW - 60e3 },
-        { role: 'assistant', content: '把外套扔给你', ts: NOW - 50e3, narr: true },
-        { role: 'assistant', content: '外面降温了，穿上再出去', ts: NOW - 40e3,
-          think: '他每次都这样，说不饿、结果半夜又胃疼' },
+        // 第二种：思考 + 旁白 + 台词（思考挂在**第一条**上，和真实流程一致）
+        { role: 'assistant', content: '把外套扔给你', ts: NOW - 50e3, narr: true,
+          think: '他每次都这样，说不饿、结果半夜又胃疼。算了，先别念他', thinkMs: 1800 },
+        { role: 'assistant', content: '外面降温了，穿上再出去', ts: NOW - 40e3 },
       ],
       profile: { msgCount: 320, affection: 72, affectionBase: 60, mood: { joy: 18, love: 26 }, moodAt: NOW - 30e3 },
       config: { herRelation: '恋人', personaDone: true },

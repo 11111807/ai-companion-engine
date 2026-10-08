@@ -872,7 +872,12 @@ function messageHTML(msg, prev, idx) {
   // 她的旁白在左边、我的在右边 —— 和对话的气泡方向一致，
   // 一眼能看出"这句场景说明是谁加的"。
   if (nar) {
+    // ⚠️ 旁白这条也要画思考块 —— 而且**先想后做**：她这一轮先写内心、
+    //    再写动作，所以思考块要排在旁白上面（用户要的顺序：
+    //    思考 → 旁白 → 台词）。曾经漏了这里，于是"带旁白的回复"里
+    //    思考块整个不显示（数据挂着、界面没画）。
     return `${maybeTimeDivider(msg.ts, prev?.ts)}
+    ${thinkHTML(msg, out)}
     <div class="wx-row narr ${out ? 'out' : 'in'}"${at}>
       <div class="wx-bubble narr">${esc(msg.content)}</div>
     </div>`;
@@ -887,15 +892,21 @@ function messageHTML(msg, prev, idx) {
 
 /**
  * 她的"内心想法"折叠块（用户要求："把她的内心想法展示出来，用别的气泡做区分，
- * 可以下拉展开的"）。默认收起，只露一行灰字 —— 不抢台词的视觉重心。
+ * 可以下拉展开的"，而且"思考 1s/2s"要能看见）。
  *
- * 为什么挂在气泡**上方**：先想后说，读起来是"她心里嘀咕了一句，然后才开口"。
+ * 顺序上它在**旁白上面**：先是想（看不见的独白）、再是动作（看得见的旁白）、
+ * 最后才是说出口的话 —— 正好是"心里怎么想 → 手上怎么做 → 嘴上怎么说"。
+ *
+ * 耗时是**真实测量**的（收到他这句话 → 回复生成完），不是编的数字：
+ * 里面既包含我给她的"读消息停顿"（thinkPause），也包含模型自己的生成时间。
  */
 function thinkHTML(msg, out) {
   if (!msg?.think || out) return '';
   if (state.config.showThink === false) return '';   // 设置里关掉了就整块不画
+  const ms = Number(msg.thinkMs);
+  const secs = ms > 0 ? ` ${(ms / 1000).toFixed(1)} 秒` : '';
   return `<div class="wx-think" data-think="1">
-    <div class="wx-think-head">💭 她的内心</div>
+    <div class="wx-think-head">💭 思考${secs}</div>
     <div class="wx-think-body">${esc(msg.think)}</div>
   </div>`;
 }
@@ -1675,6 +1686,9 @@ async function respond() {
     // 「难以理解的问题多想一两秒」——真人读到你那句话会先愣一下再回。
     // 停顿按他的消息算（长度 / 是不是要判断 / 要不要翻记忆），上限 1.6 秒：
     // 是为了像人，不是为了让人等。见 thought.js 的 thinkPause。
+    // ⏱ 从这一刻开始计时：这个数字就是界面上"思考 N 秒"里那个 N
+    //（它包含这段停顿 + 模型的生成时间，都是真实等待）。
+    const t0 = Date.now();
     const pause = thinkPause(query);
     if (pause) {
       showTyping();
@@ -1723,6 +1737,8 @@ async function respond() {
     applyMood(moodCut.mood || guessMood(lastUser));
 
     let parts = replyItems(thoughtCut.clean, Number(state.config.burst) || 2);
+    // 从"收到他那句话"到"回复生成完"的真实耗时（毫秒）→ 界面上显示成"思考 1.4 秒"
+    const thinkMs = Date.now() - t0;
 
     // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
     // 而不是让他再问一遍。见 askForWords 的说明。
@@ -1773,8 +1789,12 @@ async function respond() {
       };
       // 旁白单独存一条（narr: true）→ 界面把它画成左边那个灰色虚线小框
       if (narr) msg.narr = true;
-      // 内心想法挂在**第一条**上（一轮只写一块），界面上折叠在她那句话上方
-      if (i === 0 && innerThought) msg.think = innerThought;
+      // 内心想法挂在**第一条**上（一轮只写一块），界面上折叠在她那句话上方。
+      // 顺带把"想了多久"也带上 —— 同一条消息，就不用在别处再算时间了。
+      if (i === 0 && innerThought) {
+        msg.think = innerThought;
+        msg.thinkMs = thinkMs;
+      }
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();

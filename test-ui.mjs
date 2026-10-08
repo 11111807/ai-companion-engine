@@ -107,7 +107,9 @@ console.log('\n[3] 人设页：补的那句要说清是"她/他"的性格 ...');
 // ---------------------------------------------------------------- 4) 内心想法
 console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
 {
-  const app = mkApp({ replies: ['[[思考]]他怎么突然问这个…是不是今天出事了\n\n没事呀，你说'] });
+  const app = mkApp({
+    replies: ['[[思考]]他怎么突然问这个…是不是今天出事了\n\n（把手机翻过来扣在桌上）\n\n没事呀，你说'],
+  });
   const $ = app.$;
   tap(app, '#msgList .wx-item');
   await app.send('今天有点事想跟你说');
@@ -121,6 +123,26 @@ console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
     $('#messages .wx-think-body')?.textContent);
   check('收起时看不见内容（CSS 上是 display:none）',
     app.window.getComputedStyle($('.wx-think-body')).display === 'none');
+  // 用户要的"思考 1s/2s"——显示真实耗时（含读消息的停顿 + 生成）
+  check('⭐ 标题里带真实耗时（"思考 1.2 秒"这个样子）',
+    /^💭 思考 \d+\.\d 秒$/.test($('#messages .wx-think-head').textContent.trim()),
+    $('#messages .wx-think-head').textContent.trim());
+  check('耗时也存进了消息里（重画之后还在）',
+    Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
+      .find((m) => m.think)?.thinkMs) > 0);
+  // 用户要的顺序：思考 → 旁白 → 台词（心里怎么想 → 手上怎么做 → 嘴上怎么说）
+  check('⭐ 顺序是 思考 → 旁白 → 台词', (() => {
+    const nodes = [...$('#messages').children];
+    const isRow = (n) => /wx-row/.test(n.className);
+    const iThink = nodes.findIndex((n) => n.classList.contains('wx-think'));
+    // 从思考块往后找（前面还有历史消息，不能从 0 开始数）
+    const iNarr = nodes.findIndex((n, i) => i > iThink && isRow(n) && n.classList.contains('narr'));
+    const iTalk = nodes.findIndex((n, i) => i > iNarr && isRow(n)
+      && !n.classList.contains('narr') && n.classList.contains('in'));
+    return iThink >= 0 && iNarr > iThink && iTalk > iNarr;
+  })(), [...$('#messages').children].map((n) => n.className).join(' | '));
+  check('旁白那条还是旁白（没被思考块吃掉）',
+    /把手机翻过来扣在桌上/.test($('#messages .wx-row.narr')?.textContent || ''));
 
   tap(app, '.wx-think-head');
   check('⭐ 点一下展开', $('#messages .wx-think').classList.contains('open'));

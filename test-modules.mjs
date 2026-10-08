@@ -389,12 +389,18 @@ console.log('\n[8] thought.js —— 读消息的停顿感 + 她的内心想法 
     thought.parseThoughtBlock(`[[思考]]${'啊'.repeat(300)}`).thought.length <= 120);
 
   const block = thought.thoughtBlock();
-  check('提示词里说明了这是"看不见的心理活动"',
-    /看不见的心理活动/.test(block) && /第一人称/.test(block));
-  check('⭐ 明确和旁白区分开（旁白是动作，这个是心里话）',
-    /它和旁白\*\*不一样\*\*/.test(block));
-  check('给了长度和一五一十的要求（20~50 字）', /20~50 字/.test(block));
-  check('写明不会显示成她的话（会折叠）', /折叠成一个小小的"思考"/.test(block));
+  check('⭐ 说明它写的是"对下一句话的内心独白"（不是描述动作）',
+    /对下一句话/.test(block) && /内心独白/.test(block)
+    && /说这句话之前，心里那一下/.test(block));
+  check('⭐ 明确和旁白分工：不写动作、不写环境',
+    /不写动作、不写环境/.test(block) && /那是\*\*旁白\*\*的事/.test(block));
+  check('给了写错的反例（写成动作）', /把手机翻过来扣在桌上/.test(block));
+  check('给了写对的正例（下一句话背后的心事）',
+    /他又说"没事"了/.test(block) && /先顺着他/.test(block));
+  check('强调它常常和说出口的话不一样（旁白给画面、它给动机）',
+    /和你说出口的话\*\*不一样\*\*/.test(block) && /旁白给画面，它给动机/.test(block));
+  check('写明会折叠成"思考"、他看不见', /折叠成"思考"/.test(block) && /他不会看见/.test(block));
+  check('给了长度（20~50 字）和"不想写就不写"', /20~50 字/.test(block) && /整块不写/.test(block));
 }
 
 // ---------------------------------------------------------------- 9) ending.js
