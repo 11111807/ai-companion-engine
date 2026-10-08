@@ -45,6 +45,7 @@ import {
   readJSON, writeJSON, fillDefaults, fixConfigShape, fixProfileShape, sanitizeAffection,
   storageUsed, historyBytes, writeChat, quotaWarning, writeProfile, writeConfig,
   decayProfileFacts, hoistManualEntries, pruneFactsMeta,
+  readGlobal, writeGlobal, omitGlobal,
 } from './storage.js';
 import {
   PERSONA_PRESETS, findPreset, presetToForm,
@@ -303,6 +304,10 @@ function initFriendUI() {
     addPersona, setActive, patchPersona, clearUnread,
     readJSON, saveConfig, saveProfile, saveChat, savePersonaIndex,
     fixProfileShape, fixConfigShape, loadPersona, now,
+    // 新建好友时要把全局设置（Key/模型/接口）合并回来，别让他重填 Key
+    applyGlobalConfig,
+    // 新建好友时记一笔，人设页点返回就撤掉它
+    notePendingNew,
     resetChatRender,
     renderHerIdentity, renderAffection, renderClock, renderChat,
     openPersona, openSettings, openMenu, toast,
@@ -398,6 +403,8 @@ function loadPersona(id) {
 
   const k = keysFor(id);
   Object.assign(state.config, readJSON(k.config, {}));
+  // Key / 模型 / 接口以**全局那份**为准（所有好友共用一份，新建好友不用重填）
+  applyGlobalConfig();
   const chat = readJSON(k.chat, []);
   // 完整保留历史（用户希望能回看过去聊了什么）。
   // 给模型看多少由 buildChatContext 按 token 预算决定，不在这里砍。
@@ -408,6 +415,9 @@ function loadPersona(id) {
   Object.assign(state.profile, prof);
   fixProfileShape(state.profile, state.messages);
   fixConfigShape(state.config, saveConfig);
+  // 我的名字是全局一份，但每个好友的 profile.name（提示词里"他叫X"那句）要跟着对齐 ——
+  // 否则换了名字之后，只有当前好友知道，别的"好友"还叫他旧名字
+  applyMe(state.profile, state.config);
 }
 
 function loadLocal() {
@@ -416,7 +426,23 @@ function loadLocal() {
 }
 
 function saveConfig() {
-  writeConfig(state.config, navKeys().config);
+  // ⚠️ Key / 模型 / 接口地址是**全局**的（所有好友共用一份）：
+  //    用户问过"重新开一个好友，需要另外的 API 吗，不能用一个吗" ——
+  //    以前确实每个好友各存一份，新增好友还要重填。现在这里单独写一份全局的。
+  writeGlobal(state.config);
+  // 好友自己的 config 里**不再留 Key 的副本**（一处存比散在 N 个好友里干净）
+  writeConfig(omitGlobal(state.config), navKeys().config);
+}
+
+/**
+ * 把全局设置（Key / 模型 / 接口）合并进 state.config。
+ *
+ * 每个好友的 config 里都可能留着一份旧副本，但**以全局那份为准** ——
+ * 这样改了 Key，切到哪个好友都是新的；新建好友也不用重填。
+ * 第一次跑（全局还是空的）会拿当前 config 当种子迁过去，老用户的 Key 不会丢。
+ */
+function applyGlobalConfig() {
+  Object.assign(state.config, readGlobal(state.config));
 }
 
 /** 配额满了：尽量少砍，并且把砍了多少明确告诉他（别闷声丢记录） */
@@ -2771,9 +2797,12 @@ function openPersona({ fromSettings = false, asNew = false } = {}) {
   perAff = affection() ?? suggestPerAff();
   perAffTouched = affection() != null;
 
-  // 第一次进来（还没设过）不给返回键：要么设完，要么点「开始聊天」。
-  // 新加的好友（asNew）也算第一次 —— 得让他确认完这个人才算数。
-  $('#btnClosePersona').hidden = asNew || (!fromSettings && !c.personaDone);
+  // 返回键：
+  //   - **全新用户第一次进来**（没设过、不是加好友）：不给 —— 要么设完，要么点「开始聊天」
+  //   - **加好友进来的**：给（用户反馈"点击新建好友进入预设界面，这个界面的返回按钮呢"）——
+  //     点了就是"算了，不建了"，会把刚建的那个空好友删掉、切回原来的人
+  //   - 从设置页进来的：给（回设置页）
+  $('#btnClosePersona').hidden = !fromSettings && !asNew && !c.personaDone;
   $('#personaIntro').hidden = asNew ? false : !!c.personaDone;
   $('#perAvatarList').hidden = true;
 
@@ -2785,6 +2814,12 @@ function openPersona({ fromSettings = false, asNew = false } = {}) {
 }
 
 function closePersona() {
+  // 加好友进来的：点返回 = "算了，不建了" ——
+  // 把刚建的那个空好友删掉、切回原来的人（不然会留下一个没名字的空壳好友）
+  if (state.pendingNew) {
+    cancelPendingNew();
+    return;
+  }
   $('#screen-persona').classList.remove('show');
   // 从人设页退出来时如果一条消息都没有（比如点了"恢复默认"再返回），
   // 聊天区会是一片空白。这里补一句开场白，别让她对着空屏幕。
@@ -2793,6 +2828,40 @@ function closePersona() {
     bootGreeting();
     renderChat();
   }
+}
+
+/**
+ * 记下"正在新建好友"（friend-ui 建完人之后调）。
+ * 用户在人设页点返回时要用它把这个人撤掉。
+ */
+function notePendingNew(fromId, newId) {
+  state.pendingNew = { from: fromId, id: newId };
+}
+
+/** 撤掉刚建的那个好友（人设页点返回时走这条） */
+function cancelPendingNew() {
+  const p = state.pendingNew;
+  state.pendingNew = null;
+  if (!p) return;
+
+  // 连它的存储一起清掉（三个 key）
+  const k = keysFor(p.id);
+  for (const key of [k.config, k.chat, k.profile]) {
+    try { localStorage.removeItem(key); } catch {}
+  }
+  const r = removePersona(state.nav, p.id);
+  state.nav = r.nav;
+  if (findPersona(state.nav, p.from)) state.nav = setActive(state.nav, p.from);
+  savePersonaIndex();
+  loadPersona(state.nav.active);
+  resetChatRender();
+  renderHerIdentity();
+  renderAffection();
+  renderChat();
+  renderNav();
+  $('#screen-persona').classList.remove('show');
+  showTab('msgs');
+  toast('好，那就不加了', 1800);
 }
 
 /** 把人设页里的内容写进配置（不负责关页面） */
@@ -2853,6 +2922,7 @@ function applyPersona() {
 /** 「开始聊天」：存下来 + 如果是第一次，顺便把开场白发出来 */
 function startPersona() {
   const firstRun = !state.messages.length;
+  state.pendingNew = null;      // 建完了（或者本来就是改现有的人设）——不再是"待取消"状态
   applyPersona();
   closePersona();
   if (firstRun) {

@@ -271,10 +271,13 @@ export function createFriendUI(deps) {
    */
   function createPersona(presetId) {
     const preset = findPreset(presetId);
+    const fromId = state.nav.active;      // 记住"从谁那儿来的"：取消新建时要切回去
     const { nav, persona } = addPersona(state.nav, {
       name: preset ? preset.name : '',
       emoji: preset ? preset.emoji : '🙂',
     });
+    // 记下这次新建 —— 人设页点返回时要把这个人撤掉（见 app.js 的 cancelPendingNew）
+    deps.notePendingNew?.(fromId, persona.id);
 
     // 先把当前好友落盘，再切到新好友（新好友还是空的）
     saveProfile();
@@ -288,6 +291,9 @@ export function createFriendUI(deps) {
     for (const key of Object.keys(state.profile)) delete state.profile[key];
     fixProfileShape(state.profile, state.messages);
     fixConfigShape(state.config, saveConfig);
+    // ⚠️ 清空之后要把**全局设置**（API Key / 模型 / 接口）合并回来 ——
+    //    这几项是所有好友共用的，新好友不该让他再填一次 Key
+    deps.applyGlobalConfig?.();
 
     if (preset) {
       const f = presetToForm(preset);

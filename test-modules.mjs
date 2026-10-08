@@ -326,8 +326,7 @@ console.log('\n[7] narration.js —— 把"最近写过的旁白"捞回去提醒
   check('说明"同一批动作连着用会显得机械"', /连着用会显得机械/.test(block));
 
   // ---- 空动作（用户："我问几点了，为什么会顿住呢…… 不能总是顿住、没躲这种无感情的描述"）----
-  check('⭐ 空动作词表里有他点名的那几个',
-    ['顿住', '愣住', '沉默', '没躲', '没说话'].every((w) => narration.LAZY_ACTIONS.includes(w)),
+  check('⭐ 空动作词表里有他点名的那几个',    ['顿住', '愣住', '沉默', '没躲', '没说话'].every((w) => narration.LAZY_ACTIONS.includes(w)),
     narration.LAZY_ACTIONS.slice(0, 6).join('、'));
   check('⭐ 判定：空动作 → true',
     narration.isLazyNarration('顿住') && narration.isLazyNarration('沉默了几秒')
@@ -437,4 +436,32 @@ console.log('\n[9] ending.js —— 旁白里的"终局"要认出来（但别乱
     && /再确认一次/.test(ending.ENDING_DIALOG.second.title));
 }
 
-console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);process.exit(fail ? 1 : 0);
+// ---------------------------------------------------------------- 10) 全局设置
+console.log('\n[10] storage.js —— API Key 是全局一份（所有好友共用）...');
+{
+  const cfg = {
+    apiKey: 'sk-test-d', provider: 'deepseek', model: 'deepseek-flash',
+    endpoint: 'https://api.deepseek.com/chat/completions',
+    herName: '小雨', herTraits: ['活泼'], burst: 3,
+  };
+  check('全局字段就那四项（Key / 服务商 / 模型 / 接口）',
+    JSON.stringify(storage.GLOBAL_FIELDS)
+      === JSON.stringify(['apiKey', 'provider', 'model', 'endpoint']),
+    storage.GLOBAL_FIELDS.join(','));
+  const g = storage.pickGlobal(cfg);
+  check('pickGlobal 只挑出全局字段', Object.keys(g).length === 4 && g.apiKey === cfg.apiKey,
+    Object.keys(g).join(','));
+  check('没设过的字段不会被塞成空值', !('apiKey' in storage.pickGlobal({ provider: 'deepseek' })));
+
+  const rest = storage.omitGlobal(cfg);
+  check('⭐ omitGlobal 把人设留下、把 Key 剔掉（Key 只留全局那一份）',
+    rest.herName === '小雨' && rest.burst === 3 && !('apiKey' in rest) && !('model' in rest),
+    Object.keys(rest).join(','));
+  check('不是原地改（原来的对象还在）', cfg.apiKey === 'sk-test-d');
+  check('空值不炸', JSON.stringify(storage.pickGlobal(null)) === '{}'
+    && JSON.stringify(storage.omitGlobal(null)) === '{}');
+  check('全局 key 的名字是 xiaoyu.global.v1', storage.GLOBAL_KEY === 'xiaoyu.global.v1');
+}
+
+console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
+process.exit(fail ? 1 : 0);

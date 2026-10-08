@@ -424,6 +424,27 @@ const CASES = [
       await app.sleep(60);
     },
   },
+  {
+    // ⭐ 这一张是"思考"的**真实链路**验证：不是往记录里塞一个 think 字段，
+    //    而是真的走一遍"发消息 → 模型返回带 [[思考]] 的回复 → 解析 → 渲染"。
+    //    （模型是 mock 的，但解析和渲染全是线上那套代码。）
+    name: '24-think-live',
+    w: 390, h: 844,
+    intoChat: false,
+    reply: '[[思考]]他今天怎么这么客气…是不是有事要问我\n\n（把手里的书合上）\n\n嗯，你说呀',
+    seed: {
+      chat: [{ role: 'assistant', content: '在的', ts: NOW - 60e3 }],
+      profile: { msgCount: 320, affection: 66, affectionBase: 60, mood: { joy: 10 }, moodAt: NOW - 30e3 },
+      config: { herRelation: '朋友', personaDone: true },
+    },
+    setup: async (app) => {
+      app.$('#msgList .wx-item').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      await app.send('在吗，想跟你说个事');     // 真的走一遍生成
+      const box = app.$('#messages .wx-think');
+      if (box) box.classList.add('open');       // 展开，截图里能直接看到内容
+    },
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });

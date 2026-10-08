@@ -221,10 +221,12 @@ check('页面上写明了用哪个模型', /deepseek-flash/.test($('#screen-sett
   ($('#screen-settings').textContent.match(/deepseek-\S+/) || [''])[0]);
 
 // 就算配置里被人塞了别的模型名，跑起来也应该是 deepseek-flash
+// ⚠️ 模型名现在存在**全局**那一份里（Key / 模型 / 接口是所有好友共用的），
+//    不再写进好友自己的 config —— 见 storage.js 的 GLOBAL_KEY
+const globalCfg = () => JSON.parse(window.localStorage.getItem('xiaoyu.global.v1') || '{}');
 check('config 里的模型是 deepseek-flash',
-  JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model === 'deepseek-flash'
-  || /^deepseek-/.test(JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model || ''),
-  JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
+  globalCfg().model === 'deepseek-flash' || /^deepseek-/.test(globalCfg().model || ''),
+  globalCfg().model);
 check('提供"去申请 Key"的链接', !!$('#signupLink'));
 
 // ---------------------------------------------------------------- 配置
@@ -248,7 +250,8 @@ $$('.wx-tab').find((b) => b.dataset.tab === 'me')
 $('#meCard [data-me="edit"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 $('#meName').value = '阿哲';
 $('#btnMeSave').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-check('我的资料页能存名字', JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).userName === '阿哲');
+// 我的资料现在存在**全局**那一份里（所有好友共用一份）—— 见 storage.js 的 GLOBAL_FIELDS
+check('我的资料页能存名字', globalCfg().userName === '阿哲');
 
 // 回到设置页测连接
 $('#screen-settings').classList.add('show');
@@ -256,7 +259,7 @@ $('#inpKey').value = 'sk-test-key';
 $('#btnTest').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const good = await waitFor(() => !$('#testResult').hidden && /成功/.test($('#testResult').textContent), 5000);
 check('正确 key 测试通过', !!good, $('#testResult').textContent.trim());
-check('用户名已保存', JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).userName === '阿哲');
+check('用户名已保存', globalCfg().userName === '阿哲');
 
 $('#btnCloseSettings').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 check('设置页可关闭', !$('#screen-settings').classList.contains('show'));
@@ -853,14 +856,14 @@ console.log('\n[11] DeepSeek API 版本（旧模型名下线） ...');
 
 // 模型名现在锁定在代码里（设置页没有下拉了），所以直接查配置和常量
 check('默认模型名是新版的 deepseek-flash', (() => {
-  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}');
+  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.global.v1') || '{}');
   return cfg.model === 'deepseek-flash';
-})(), JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
+})(), globalCfg().model);
 
 check('已下线的 deepseek-chat / deepseek-reasoner 不再被使用', (() => {
-  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}');
+  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.global.v1') || '{}');
   return !/deepseek-chat|deepseek-reasoner/.test(cfg.model || '');
-})(), JSON.parse(window.localStorage.getItem('xiaoyu.config.v1') || '{}').model);
+})(), globalCfg().model);
 
 // 老配置自动升级
 check('老配置里的 deepseek-chat 会自动升级', (() => {
@@ -992,13 +995,14 @@ check('给你换 emoji 头像会立刻生效', (() => {
 
 check('聊天区里我的气泡头像也跟着变', (() => {
   const mine = $$('#messages .wx-avatar.me').map((e) => e.textContent);
-  const emoji = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).myEmoji;
+  const emoji = globalCfg().myEmoji;
   return mine.length > 0 && mine.every((t) => t === emoji);
 })());
 
 check('我的头像和她的头像是两份独立配置', (() => {
-  const cfg = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1'));
-  return cfg.myEmoji && cfg.herEmoji !== cfg.myEmoji;
+  const emoji = globalCfg().myEmoji;
+  const her = JSON.parse(window.localStorage.getItem('xiaoyu.config.v1')).herEmoji;
+  return emoji && her !== emoji;
 })());
 
 check('只改我的头像不会改动她的', (() => {

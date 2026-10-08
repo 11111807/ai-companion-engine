@@ -23,6 +23,31 @@ export const CFG_KEY = 'xiaoyu.config.v1';
 export const CHAT_KEY = 'xiaoyu.chat.v1';
 export const PROFILE_KEY = 'xiaoyu.profile.v1';
 
+/**
+ * 「全局设置」单独一个 key —— **所有好友共用一份**。
+ *
+ * 为什么要分两种"全局"（用户连问了两个问题：
+ *   "重新开一个好友，需要另外的 API 吗，不能用一个吗"
+ *   "为什么新建好友后，我的以前预设的自己的信息为什么没了"）：
+ *
+ *   1. **部署级**：Key / 模型 / 接口 —— "这个部署连哪个模型"，跟她是谁都无关
+ *   2. **用户级**：我的名字 / 头像 / 职业 / 性别 / 年龄 / 生日（见 me.js）——
+ *      用户在「我」里填一次，**所有好友都该看到同一份**
+ *
+ *   这两种以前都存在**每个好友各自的 config** 里（新建好友时那份 config
+ *   从空白开始）→ 每加一个好友都要重填 Key、连"我是谁"都被清掉了。
+ *   现在都收在这一份里，好友自己的 config 只管人设/关系/回复风格。
+ */
+export const GLOBAL_KEY = 'xiaoyu.global.v1';
+
+/** 哪些字段是全局的 */
+export const GLOBAL_FIELDS = [
+  // 部署级：连哪个模型
+  'apiKey', 'provider', 'model', 'endpoint',
+  // 用户级：「我」的资料（所有好友看到的是同一个人）
+  'userName', 'myEmoji', 'myAvatar', 'myJob', 'myAge', 'myGender', 'myBirthday',
+];
+
 /** 浏览器 localStorage 大约 5MB。用来算"还剩多少"，不保证精确 */
 export const QUOTA_BYTES = 5 * 1024 * 1024;
 
@@ -41,6 +66,55 @@ export function readJSON(key, fallback) {
 /** 写一个 JSON。坏数据不抛错，只返回失败 */
 export function writeJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+}
+
+/**
+ * 把 config 里那几项**全局字段**摘出来（Key / 模型 / 接口）。
+ * 只取存在的键，不补默认值 —— 没设过就别往全局里写空值。
+ */
+export function pickGlobal(config = {}) {
+  const out = {};
+  for (const k of GLOBAL_FIELDS) {
+    if (config[k] !== undefined) out[k] = config[k];
+  }
+  return out;
+}
+
+/**
+ * 读全局设置，并把老数据迁进来。
+ *
+ * 老用户的 Key 还在**某个好友**的 config 里（那时候还没有全局这一说）：
+ * 全局是空的话，就拿传入的这份 config 当种子写一次 ——
+ * 于是"他升级之后 Key 还在"，而新加的好友也能直接用同一个 Key。
+ *
+ * @param {object} [legacy] 当前好友的 config（迁移用）
+ * @returns {object} 全局字段
+ */
+export function readGlobal(legacy = {}) {
+  const saved = readJSON(GLOBAL_KEY, null);
+  if (saved && typeof saved === 'object') return pickGlobal(saved);
+  const seed = pickGlobal(legacy);
+  if (Object.keys(seed).length) writeJSON(GLOBAL_KEY, seed);
+  return seed;
+}
+
+/** 写全局设置（只覆盖那几项，不动别的） */
+export function writeGlobal(patch = {}) {
+  const cur = readJSON(GLOBAL_KEY, {}) || {};
+  return writeJSON(GLOBAL_KEY, { ...cur, ...pickGlobal(patch) });
+}
+
+/**
+ * 反过来：把全局字段从一份 config 里剔掉。
+ *
+ * 存**好友自己的** config 时用它 —— Key 只留全局那一份，
+ * 别再散在 N 个好友的配置里（改一次要对 N 处负责，迟早不一致）。
+ * 内存里的 state.config 仍然带着这几项，界面照常用。
+ */
+export function omitGlobal(config = {}) {
+  const out = { ...config };
+  for (const k of GLOBAL_FIELDS) delete out[k];
+  return out;
 }
 
 /** 缺字段就补默认值（老版本存下来的数据没有新字段） */

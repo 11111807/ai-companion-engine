@@ -228,7 +228,9 @@ console.log('\n[6] 加好友（走预设）...');
   check('人设页已经填好预设的名字', $('#perName').value === '林砚', $('#perName').value);
   check('职业也填好了', /后端/.test($('#perJob').value), $('#perJob').value);
   check('关系是预设的（同事）', $('#perRelation').value === '同事', $('#perRelation').value);
-  check('新好友第一次进来不给返回键（要么设完要么开始）', $('#btnClosePersona').hidden === true);
+  // ⭐ 这一条改了：用户反馈"点击新建好友进入预设界面，这个界面的返回按钮呢" ——
+  //    加好友进来的现在**有**返回键，点了就是"算了不建了"（把刚建的空好友撤掉）
+  check('⭐ 加好友进来的人设页要有返回键', $('#btnClosePersona').hidden === false);
 
   tap('#btnPersonaStart');
 
@@ -397,6 +399,134 @@ console.log('\n[9] 老数据自动迁移成"小雨"这个好友（这条最要�
     && app.window.localStorage.getItem('xiaoyu.profile.v1').includes('豆豆'));
   check('不会往新命名空间里乱写一份',
     !app.window.localStorage.getItem('xiaoyu.persona.default.chat.v1'));
+}
+
+// ---------------------------------------------------------------- API Key 是全局的
+console.log('\n[10] 新开一个好友不用再填一次 API Key（用户问过这个）...');
+{
+  // 用户原话："重新开一个好友，需要另外的 API 吗，不能用一个吗"
+  // 以前是每个好友各存一份（新建的好友 config 从空白开始）→ 每加一个人都要重填。
+  // 现在 Key / 模型 / 接口是**全局一份**（xiaoyu.global.v1），所有好友共用。
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': [msg('user', '在吗', 10), msg('assistant', '在呀', 9)],
+      'xiaoyu.profile.v1': { msgCount: 20 },
+      'xiaoyu.config.v1': {
+        personaDone: true, herName: '小雨', apiKey: 'sk-test-a',
+        provider: 'deepseek', model: 'deepseek-flash', endpoint: 'https://api.deepseek.com/chat/completions',
+      },
+    },
+    reply: '嗯',
+  });
+  windows.push(app.dom.window);
+  const $ = app.$;
+  const tap = (sel) => $(sel).dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  const LS = app.window.localStorage;
+
+  // 老用户升级：Key 从好友 config 里迁到全局
+  const g = JSON.parse(LS.getItem('xiaoyu.global.v1') || '{}');
+  check('⭐ 老用户的 Key 被迁到全局那份里了', g.apiKey === 'sk-test-a', JSON.stringify(g).slice(0, 60));
+  check('模型 / 接口也一起迁过去了', g.model === 'deepseek-flash' && /deepseek\.com/.test(g.endpoint));
+
+  // 加一个新好友
+  tap('.wx-tab[data-tab="friends"]');
+  tap('#btnAddFriend');
+  tap('#addFriendList [data-preset="suyi"]');
+  tap('#btnPersonaStart');
+  await app.sleep(60);
+
+  const nav = JSON.parse(LS.getItem('xiaoyu.personas.v1'));
+  const newId = nav.active;
+  const newCfg = JSON.parse(LS.getItem(`xiaoyu.persona.${newId}.config.v1`) || '{}');
+  check('新好友有自己的 config（人设在那份里）', newCfg.herName === '苏亦', newCfg.herName);
+  check('⭐ 但 Key 没有在它自己的 config 里再存一份', !('apiKey' in newCfg), Object.keys(newCfg).join(','));
+  check('Key 只在全局那一份里', JSON.parse(LS.getItem('xiaoyu.global.v1')).apiKey === 'sk-test-a');
+
+  // 关键：不填 Key 也能直接聊
+  const before = app.requests.length;
+  await app.send('你好呀');
+  check('⭐ 新好友不填 Key 也能直接发消息', app.requests.length > before,
+    `${before} → ${app.requests.length}`);
+  check('（没有弹"先填一个 API Key"）', app.requests.length > before);
+
+  // 换 Key 之后，另一个好友也跟着变
+  tap('.wx-tab[data-tab="me"]');
+  tap('#meCard [data-me="settings"]');
+  $('#inpKey').value = 'sk-test-b';
+  $('#inpKey').dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  tap('#btnCloseSettings');
+  check('改完 Key 写进了全局那份',
+    JSON.parse(LS.getItem('xiaoyu.global.v1')).apiKey === 'sk-test-b');
+
+  tap('.wx-tab[data-tab="msgs"]');
+  tap('#msgList .wx-item[data-open="default"]');
+  // 切回小雨：设置页里显示的应该是**全局那个新 Key**（说明它在好友之间是共用的）
+  tap('.wx-tab[data-tab="me"]');
+  tap('#meCard [data-me="settings"]');
+  check('⭐ 切到另一个好友，用的还是同一个（新的）Key',
+    $('#inpKey').value === 'sk-test-b', $('#inpKey').value);
+  tap('#btnCloseSettings');
+}
+
+// ---------------------------------------------------------------- 取消新建 + 我的资料
+console.log('\n[11] 加好友时点返回 = 不建了；我的资料不该被清掉（用户报的两个问题）...');
+{
+  // 用户原话：
+  //   "为什么新建好友后，我的以前预设的自己的信息为什么没了呢"
+  //   "点击新建好友进入预设界面……这个界面的返回按钮呢"
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': [msg('user', '在吗', 10), msg('assistant', '在呀', 9)],
+      'xiaoyu.profile.v1': { msgCount: 20 },
+      'xiaoyu.config.v1': {
+        personaDone: true, herName: '小雨', apiKey: 'sk-test-c',
+        userName: '阿哲', myJob: '程序员', myAge: 27,
+      },
+    },
+    reply: '嗯',
+  });
+  windows.push(app.dom.window);
+  const $ = app.$;
+  const tap = (sel) => $(sel).dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  const LS = app.window.localStorage;
+
+  check('⭐ 我的资料跟着 Key 一起进了全局那一份',
+    JSON.parse(LS.getItem('xiaoyu.global.v1')).userName === '阿哲');
+
+  // 加好友 → 人设页 → 点返回
+  tap('.wx-tab[data-tab="friends"]');
+  tap('#btnAddFriend');
+  tap('#addFriendList [data-preset="suyi"]');
+  await app.sleep(40);
+  check('⭐ 加好友进来的人设页有返回键', $('#btnClosePersona').hidden === false);
+  tap('#btnClosePersona');
+  await app.sleep(60);
+
+  const nav = JSON.parse(LS.getItem('xiaoyu.personas.v1'));
+  check('⭐ 点返回 → 刚建的那个好友被撤掉了', nav.list.length === 1, JSON.stringify(nav.list.map((p) => p.id)));
+  check('⭐ 切回了原来的好友', nav.active === DEFAULT_ID, nav.active);
+  check('被撤掉的好友没留下垃圾存档',
+    !LS.getItem('xiaoyu.persona.suyi.config.v1')
+    && !Object.keys(LS).some((k) => /^xiaoyu\.persona\.(?!default)/.test(k) && k.endsWith('.chat.v1')));
+
+  // 我的资料必须还在（这是用户报的那个 bug）
+  tap('.wx-tab[data-tab="me"]');
+  check('⭐ 我的资料没丢（名字 / 职业 / 年龄都在）',
+    /阿哲/.test($('#meCard').textContent) && /程序员/.test($('#meCard').textContent)
+    && /27 岁/.test($('#meCard').textContent),
+    $('#meCard').textContent.replace(/\s+/g, ' ').slice(0, 40));
+
+  // 真的建一个新好友，我的资料也还在（新建时不会再清掉它）
+  tap('.wx-tab[data-tab="friends"]');
+  tap('#btnAddFriend');
+  tap('#addFriendList [data-preset="ajiu"]');
+  tap('#btnPersonaStart');
+  await app.sleep(60);
+  tap('.wx-tab[data-tab="me"]');
+  check('⭐ 新建好友之后，我的资料依然在',
+    /阿哲/.test($('#meCard').textContent), $('#meCard').textContent.replace(/\s+/g, ' ').slice(0, 30));
+  check('新好友的 config 里也没有我的资料（不在好友之间各存一份）',
+    !('userName' in JSON.parse(LS.getItem(`xiaoyu.persona.${JSON.parse(LS.getItem('xiaoyu.personas.v1')).active}.config.v1`) || '{}')));
 }
 
 // ---------------------------------------------------------------- 收尾
