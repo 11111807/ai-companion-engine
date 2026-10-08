@@ -75,7 +75,7 @@ This repo is the working record of taking those defects one at a time, with the 
 and the counter-examples kept in the code comments and in the tests.
 
 **What it is not.** Not a framework, not a runtime, not a memory database, not a model.
-It is the prompt-and-policy layer: roughly 28 small ES modules and ~1,560 tests.
+It is the prompt-and-policy layer: roughly 28 small ES modules and ~1,580 tests.
 
 ---
 
@@ -117,7 +117,7 @@ It is the prompt-and-policy layer: roughly 28 small ES modules and ~1,560 tests.
 | [**Shikigami-Protocol**](https://github.com/Shikigami-Lab/Shikigami-Protocol) | 本地优先的角色**运行时框架**：情绪 × 精力 × 好感三个状态机、内置记忆管线（事实 / 向量 / 日摘要）、后台反思、沉默后主动开口。Electron/Vue + FastAPI，AGPL-3.0 | 它是**应用 / 框架**——想跑起来得接受它的技术栈和常驻进程；**这里是提示词与策略层**，纯浏览器、零运行时依赖、无构建步骤，可以只抄其中一层（比如只要遗忘曲线，就那 173 行） |
 | [**alive-ai**](https://www.npmjs.com/package/alive-ai) | **多类记忆的拟生架构**：working / episodic / semantic / emotional / autobiographical，外加 dream 与 shadow memory，主打"数字神经系统" | 它把重点放在**记忆的类别划分**上；这个项目的重点在**记忆的四种失效方式**（写错 / 该忘没忘 / 该记没记 / 想不起来）以及**知识边界**——角色知道自己该懂什么，不懂时不装懂、但也不冷场 |
 | [**feltstate**](https://github.com/Morephine/feltstate) | **情感与记忆的持久化引擎**（Python 库）：5W1H 事实衰减与强化、执念、双时态查询、撤回与更正、哈希链审计、以及**真正的删除**（崩溃安全的 reaper 级联 + 快照一并清除） | 它的记忆生命周期**比这个项目成熟得多**（540 项测试、`gc` 判定与 `reaper` 执行分离、防篡改账本）。差别在**形态与场景**：它为"一个 agent 调用一个库"设计，值得长跑、值得审计；这里是**静态页面里跑、无需部署也无处部署后端**，代价是"删除"只能是清 localStorage |
-| **这个仓库** | **角色该表现得知道什么**：知识边界（不懂 ≠ 冷场）、关系身份与温度双轴、三种时间尺度分开的情绪，以及把这些意图**锁进 1555 项断言** | —— |
+| **这个仓库** | **角色该表现得知道什么**：知识边界（不懂 ≠ 冷场）、关系身份与温度双轴、三种时间尺度分开的情绪，以及把这些意图**锁进 1579 项断言** | —— |
 
 **一句话概括差异**：它们回答"记忆和情绪**怎么存**"，
 这个仓库回答"**角色该表现得知道什么、以及不懂的时候怎么不伤人**"。
@@ -214,7 +214,7 @@ respond()
 | `src/profession.js` | ~405 | 职业/专业 → 知识储备（12 域 × 学生版/工作版）+ 同行判断 |
 | `src/memory-io.js` | ~400 | 记忆的写入/检索/导入，要点压缩，生平拆分 |
 | `src/affection.js` | ~375 | 好感度：分档、态度、人本主义三条件、漂移、久不联系会淡 |
-| `src/personas.js` | ~255 | **多好友**：好友索引、存储路由、老数据兼容 |
+| `src/personas.js` | ~255 | **多好友**：好友索引、存储路由、老数据兼容（内存里只留当前好友那一份，切人就是落盘+读盘） |
 | `src/storage.js` | ~236 | localStorage 读写、老数据补字段、配额满了怎么办 |
 | `src/mood.js` | ~231 | **实时情绪**：情绪表、随时间衰减、合并、表情联动 |
 | `src/zodiac.js` | ~196 | 星座（只作参考，不作剧本） |
@@ -227,7 +227,7 @@ respond()
 | `src/narration.js` | ~180 | **旁白**：括号拆分、防复读、"空动作"黑名单（顿住/沉默…），全是纯函数 |
 | `src/thought.js` | ~125 | **停顿感**（难的问题先想一下）+ 她的「思考」（`[[思考]]` 内心独白） |
 | `src/ending.js` | ~72 | **终局检测**：旁白里的"一起老去 / 都死了"要不要拦一下 |
-| `src/me.js` | ~75 | **我的资料**：名字/头像/职业/性别/年龄/生日（全局一份） |
+| `src/me.js` | ~75 | **我的资料**：名字/头像/职业/性别/年龄/生日（**真的全局**：存在 `xiaoyu.global.v1`） |
 | `src/search.js` | ~73 | 搜聊天记录（纯子串，给人用） |
 | `src/format.js` | ~46 | HTML 转义闸门 / 时间显示 / 时长说法 |
 
@@ -500,7 +500,7 @@ Key 只存在你自己的浏览器 localStorage 里，不会上传到任何地�
 ### 测试
 
 ```bash
-npm run test:all   # 全部 13 个测试文件，1555 项
+npm run test:all   # 全部 13 个测试文件，1579 项
 ```
 
 | 文件 | 项数 | 测什么 |
@@ -508,10 +508,10 @@ npm run test:all   # 全部 13 个测试文件，1555 项
 | `test-app.mjs` | 199 | 全流程 UI、微信界面、导入导出、人设页流程、搜索与折叠 |
 | `test-persona.mjs` | 374 | 人设、星座、好感度、人本主义、每种关系各自的心里话、场景池 |
 | `test-time.mjs` | 178 | 时间观念（**他问几点要照实说**）、场景演变、时间旋钮、**场景和时间打架时的校正**、旁白要"画龙点睛" |
-| `test-friends.mjs` | 103 | **多好友**：存储路由、索引容错、预置人格质量、**老数据迁移** |
+| `test-friends.mjs` | 120 | **多好友**：存储路由、索引容错、预置人格质量、**老数据迁移** |
 | `test-mood.mjs` | 128 | **实时情绪**：衰减与合并、解析容错、情绪条、旁白框与共用发送键、**她写的括号旁白 → 左边单独一个框** |
 | `test-profession.mjs` | 88 | 职业知识分档、同行判断、"不懂专业 ≠ 不懂他" |
-| `test-modules.mjs` | 157 | **拆出来的模块能不能脱离 app.js 单独 import** + 纯函数行为（含旁白拆分） |
+| `test-modules.mjs` | 158 | **拆出来的模块能不能脱离 app.js 单独 import** + 纯函数行为（含旁白拆分） |
 | `test-memory.mjs` | 92 | 记忆读取、要点压缩、**一天内的事不能忘**、主动开口、习惯注入 |
 | `test-native.mjs` | 64 | 本地推理桥接、模型清单、下载完整性 |
 | `test-habits.mjs` | 36 | 动作统计（旁白框写的也算）、模糊程度、禁说"次数" |
