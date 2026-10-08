@@ -74,6 +74,10 @@ import {
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
 import { parseThoughtBlock, thinkPause, recentThoughts, thoughtVaryBlock } from './thought.js';
+// 她最近几轮反复提到的事（台词 + 内心都算）——
+// 旁白和内心各自有"别重复"的防护，唯独"同一件事被反复拿出来说"一直没人管
+// （用户："第二段总是在强调明天要早起，思考里也有，很出戏"）。
+import { repeatedTopics, repeatBlock } from './repeat.js';
 // 「她怎么回」那三个设置（长度 / 条数 / 活泼程度）要真的进提示词。
 // 以前它们只当 max_tokens、切分条数和 temperature 用，提示词里一个字都没变 ——
 // 所以"安静"也会话痨（见 voice.js）。
@@ -1725,6 +1729,8 @@ async function respond() {
     // 她最近几次的内心 → 别每轮都是同一个句式（用户："思考也不能太机械了"）。
     // 和旁白同一个道理：模型看不见自己前面写过什么，得点名它才换。
     thoughtVaryBlock(recentThoughts(state.messages)),
+    // 她最近几轮反复提到的事（台词 + 内心都算）→ 别再念同一件事
+    repeatBlock(repeatedTopics(state.messages)),
     // 今天一起做过、但已经掉出上面那段完整记录的事（用户实测："中午带她去开会，
     // 晚上就忘了"）。不需要命中关键词，天然的"当日事件线"。
     todayTimeline(state.messages, now(), { before: _ctxStart }),
@@ -3797,6 +3803,8 @@ async function speakUp(reason) {
       // 主动开口那一轮她也会写旁白，所以这条同样要提醒（别复读上一个动作）
       narrationVaryBlock(recentNarrations(state.messages)),
       thoughtVaryBlock(recentThoughts(state.messages)),
+    // 她最近几轮反复提到的事（台词 + 内心都算）→ 别再念同一件事
+    repeatBlock(repeatedTopics(state.messages)),
       `【现在的情况】
 ${situation}
 

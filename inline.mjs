@@ -69,7 +69,7 @@ const VAR_OF = {
 const APP_MODULES = [
   'persona', 'zodiac', 'affection', 'relation', 'api', 'providers', 'habits', 'memory',
   'emotion', 'format', 'storage', 'presets', 'me', 'friend-ui', 'ending-ui', 'mood',
-  'personas', 'memory-io', 'search', 'narration', 'thought', 'voice', 'ending',
+  'personas', 'memory-io', 'search', 'narration', 'thought', 'repeat', 'voice', 'ending',
 ];
 
 /** 把 `import { a, b as c } from './x.js'` 换成 `const { a, b: c } = __x;` */
@@ -111,6 +111,7 @@ const EXPORTS = {
   narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock',
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
   thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt', 'recentThoughts', 'thoughtVaryBlock'],
+  repeat: ['repeatedTopics', 'repeatBlock'],
   voice: ['voiceOf', 'toneOf', 'voiceBlock', 'voiceHint'],
   ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
@@ -178,6 +179,7 @@ export function inlineScript(dir = '') {
     format: load('format', 'format'),
     narration: load('narration', 'narration'),
     thought: load('thought', 'thought'),
+    repeat: load('repeat', 'repeat'),
     voice: load('voice', 'voice'),
     ending: load('ending', 'ending'),
     search: load('search', 'search'),
@@ -231,6 +233,9 @@ export function inlineScript(dir = '') {
       const __thought = (function () { ${src.thought}
         return { ${pick(names('thought'))} };
       })();
+      const __repeat = (function () { ${src.repeat}
+        return { ${pick(names('repeat'))} };
+      })();
       const __voice = (function () { ${src.voice}
         return { ${pick(names('voice'))} };
       })();
@@ -273,9 +278,9 @@ export function inlineScript(dir = '') {
       const __profession = (function () { ${src.profession}
         return { ${pick(names('profession'))} };
       })();
-      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt, voiceOf, voiceBlock) { ${src.persona}
+      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt, voiceOf, voiceBlock, voiceFlowBlock) { ${src.persona}
         return { ${pick(names('persona'))} };
-      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt, __voice.voiceOf, __voice.voiceBlock);
+      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt, __voice.voiceOf, __voice.voiceBlock, __voice.voiceFlowBlock);
       const __api = (function () { ${src.api}
         return { ${pick(names('api'))} };
       })();

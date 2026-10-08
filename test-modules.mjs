@@ -22,6 +22,7 @@ import * as narration from './src/narration.js';
 import * as thought from './src/thought.js';
 import * as ending from './src/ending.js';
 import * as voice from './src/voice.js';
+import * as repeat from './src/repeat.js';
 
 let pass = 0;
 let fail = 0;
@@ -37,7 +38,7 @@ const hasDom = () => typeof document !== 'undefined' || typeof localStorage !== 
 console.log('\n[0] 每个模块都能脱离 app.js 和浏览器单独加载 ...');
 {
   check('这个测试跑在 node 里（没有 document / localStorage）', !hasDom());
-  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending, voice })) {
+  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending, voice, repeat })) {
     check(`${name}.js 能单独 import`, !!mod && Object.keys(mod).length > 0,
       `${Object.keys(mod).length} 个导出`);
   }

@@ -10,7 +10,7 @@
  * 所以这个文件盯的就是"它们现在进提示词了，而且是可解释地进"。
  */
 
-import { voiceOf, toneOf, voiceBlock, voiceHint } from './src/voice.js';
+import { voiceOf, toneOf, voiceBlock, voiceHint, voiceFlowBlock } from './src/voice.js';
 
 let pass = 0;
 let fail = 0;
@@ -107,6 +107,35 @@ console.log('\n[5] 进提示词的那一段 ...');
   check('⭐ "安静"不许退化成"嗯哦好"（和"温柔≠沉默"那条一致）',
     /安静不是敷衍/.test(block));
   check('空值不炸', typeof voiceBlock(voiceOf({})) === 'string' && voiceBlock(voiceOf({})).length > 50);
+
+  // 用户实测"选了很短 + 安静，依旧话太长" → 光写"大约多少字"不够，
+  // 得写成硬上限，并且给一个数得出来的反面例子（模型对例子最敏感）。
+  check('⭐ 写成**硬上限**，不是"大约"（用户："依旧话太长"）',
+    /最多不超过 60 字/.test(voiceBlock(voiceOf({ temperature: 0.7, maxTokens: 120 })))
+    && /这是硬限制，不是建议/.test(block)
+    && !/是大概的量，不是任务/.test(block));
+  check('⭐ 给了"太长"的反面例子，并且数得出来',
+    /反面例子/.test(block) && /八十多个字/.test(block));
+  check('⭐ 明说"第二条不许跑题，凑不出来就只发一条"（第二段跑题的根子）',
+    /第二条不许跑题/.test(block) && /凑不出来就只发一条/.test(block));
+}
+
+// ---------------------------------------------------------------- 6) 组织方式
+console.log('\n[6] 连发的规矩只在真的连发时讲 ...');
+{
+  // 旧提示词里"你一次会发 2-3 条""至少要有一条把话说完整"是**每轮都在念**的，
+  // 所以哪怕调成"安静 + 一条"，提示词还在催她凑第二条 ——
+  // 这就是"第二段硬塞一句不相干的话"的来源。
+  const one = voiceFlowBlock(voiceOf({ temperature: 0.7, maxTokens: 120, burst: 2 }));
+  const many = voiceFlowBlock(voiceOf({ temperature: 1, maxTokens: 250, burst: 2 }));
+
+  check('⭐ 一条的档位不再讲"连发"', /【这一条怎么说】/.test(one) && !/连发/.test(one));
+  check('一条的档位明确"不要为了有第二条硬凑"', /不要为了"有第二条"硬凑/.test(one));
+  check('一条的档位也报字数上限', /45 字以内/.test(one), one.split('\n')[2]);
+  check('多条的档位才讲连发和连贯',
+    /【把话说连贯】/.test(many) && /连发 ≠ 三句断片/.test(many));
+  check('⭐ 多条时也明说"第 2 条不许跑题"', /第 2 条不许跑题/.test(many));
+  check('空值不炸', typeof voiceFlowBlock(voiceOf({})) === 'string');
 }
 
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
