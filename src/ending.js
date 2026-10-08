@@ -58,8 +58,10 @@ export const DREAM_NARRATION = '你们都睡着了，做了一个好梦，白天
 export const ENDING_DIALOG = {
   first: {
     title: '是否忘记你们的一切？',
+    // ⚠️ 不要在这里写 markdown 的 **加粗**：弹窗是用 textContent 渲染的，
+    //    星号会原样显示出来（截图里真看到了）
     body: '这句话像是在给你们的这段故事画句号。\n忘记，就是把你们的聊天记录、'
-      + '她记得的事、好感度**全部清掉**，从零开始。',
+      + '她记得的事、好感度全部清掉，从零开始。',
     yes: '是',
     no: '否',
   },

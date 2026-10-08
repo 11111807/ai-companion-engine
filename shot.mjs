@@ -362,6 +362,55 @@ const CASES = [
     setup: () => {},
     post: 'document.querySelector("#messages").scrollTop = 1e6;',
   },
+  {
+    // 她的"内心想法"折叠块（展开态）
+    name: '22-think-block',
+    w: 390, h: 844,
+    seed: {
+      chat: [
+        { role: 'assistant', content: '诶你终于回我了', ts: NOW - 120e3, think: '他今天怎么这么久才回我…是不是又在忙' },
+        { role: 'assistant', content: '你晚饭吃了没啊', ts: NOW - 110e3 },
+        { role: 'user', content: '刚下班，还没吃', ts: NOW - 60e3 },
+        { role: 'assistant', content: '把外套扔给你', ts: NOW - 50e3, narr: true },
+        { role: 'assistant', content: '外面降温了，穿上再出去', ts: NOW - 40e3,
+          think: '他每次都这样，说不饿、结果半夜又胃疼' },
+      ],
+      profile: { msgCount: 320, affection: 72, affectionBase: 60, mood: { joy: 18, love: 26 }, moodAt: NOW - 30e3 },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: (app) => {
+      // ⚠️ 这一轮起"每次进来都停在消息列表"，所以截图要先点进聊天页
+      app.$('#msgList .wx-item').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      // 第一块收起、第二块展开 —— 一张图里两种状态都能看到
+      const boxes = app.$$('#messages .wx-think');
+      if (boxes[0]) boxes[0].classList.remove('open');
+      if (boxes[1]) boxes[1].classList.add('open');
+    },
+    post: 'document.querySelector("#messages").scrollTop = 1e6;',
+  },
+  {
+    // 终局确认弹窗（第一轮）
+    // ⚠️ 宽 500 是故意的：弹窗是 position:fixed，参照的是**真实视口**，
+    //    而 Edge 不认 --window-size（见文件顶部那段说明），这里视口约 500。
+    //    按 390 出图的话弹窗右侧会被裁掉 —— 那是截图工具的偏差，不是 CSS 的问题。
+    name: '23-ending-dialog',
+    w: 500, h: 844,
+    seed: {
+      chat: [
+        { role: 'user', content: '很多年后，我们一起老去，最后都离开了这个世界', ts: NOW - 20e3, narr: true },
+      ],
+      profile: { msgCount: 320, affection: 80, affectionBase: 60 },
+      config: { herRelation: '恋人', personaDone: true },
+    },
+    setup: async (app) => {
+      app.$('#msgList .wx-item').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      // 真的走一遍触发路径（弹窗是 Promise，这里不等它）
+      app.$('#narrInput').value = '很多年后，我们一起老去，最后都离开了这个世界';
+      app.$('#narrInput').dispatchEvent(new app.window.Event('input', { bubbles: true }));
+      app.$('#btnSend').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+      await app.sleep(60);
+    },
+  },
 ];
 
 fs.mkdirSync(OUT, { recursive: true });

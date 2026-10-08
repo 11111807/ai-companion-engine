@@ -329,7 +329,7 @@ body { background: var(--wx-bg); }
  */
 .wx-think {
   max-width: 76%;
-  margin: 0 0 4px 46px;         /* 和她那侧的气泡对齐（让开头像"她这边的内容"） */
+  margin: 0 0 4px 56px;         /* 和她那侧的气泡左边对齐（头像宽 + 间隙） */
   border: 1px solid #ececec;
   border-radius: 8px;
   background: #fafafa;
@@ -345,10 +345,16 @@ body { background: var(--wx-bg); }
   cursor: pointer;
   user-select: none;
 }
+/* 展开箭头用 CSS 画，不用字符（▸ 在无头浏览器里会落到缺字体的方块上，
+   截图里真见过一个方框） */
 .wx-think-head::after {
-  content: '▸';
+  content: '';
   margin-left: auto;
-  font-size: 10px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid #bdbdbd;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
   transition: transform .18s;
 }
 .wx-think.open .wx-think-head::after { transform: rotate(90deg); }
