@@ -529,6 +529,83 @@ console.log('\n[11] 加好友时点返回 = 不建了；我的资料不该被清
     !('userName' in JSON.parse(LS.getItem(`xiaoyu.persona.${JSON.parse(LS.getItem('xiaoyu.personas.v1')).active}.config.v1`) || '{}')));
 }
 
+// ---------------------------------------------------------------- 12) 串线
+console.log('\n[12] 她正在打字时点开另一个好友 —— 回复绝不能落到别人身上 ...');
+{
+  // 用户的原话："同时有两个相似好友时，发消息会串，给这个发，但是另一个回的我。"
+  //
+  // 根因：state.config / messages / profile 永远是**当前好友**那一份，
+  // 而一轮回复要跨好几个 await（先愣一下 → 请求 → 兜底补一次 → 逐条发）。
+  // 他在她打字的时候点开另一个好友，loadPersona 就把这三样换成别人的了 ——
+  // 于是回复、记忆、好感度全写到了**别人**身上。
+  const app = bootApp({
+    seed: {
+      'xiaoyu.personas.v1': {
+        version: 1,
+        list: [
+          { id: DEFAULT_ID, name: '小雨', emoji: '🌧️', createdAt: 1, lastAt: 5000 },
+          { id: 'other', name: '林砚', emoji: '🖋️', createdAt: 2, lastAt: 4000 },
+        ],
+        order: [DEFAULT_ID, 'other'],
+        active: DEFAULT_ID,
+      },
+      'xiaoyu.chat.v1': [msg('assistant', '小雨在呢', 10)],
+      'xiaoyu.profile.v1': { msgCount: 20, affection: 70 },
+      'xiaoyu.config.v1': { herName: '小雨', personaDone: true },
+      'xiaoyu.persona.other.chat.v1': [msg('assistant', '林砚在', 5)],
+      'xiaoyu.persona.other.profile.v1': { msgCount: 3, affection: 20, facts: ['林砚才知道的事'] },
+      'xiaoyu.persona.other.config.v1': { herName: '林砚', personaDone: true },
+    },
+    reply: '她回的这一句',
+  });
+  windows.push(app.dom.window);
+  const $ = app.$;
+  const tap = (sel) => $(sel).dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  const stored = (k) => JSON.parse(app.window.localStorage.getItem(k) || '[]');
+  const otherMsgs = () => stored('xiaoyu.persona.other.chat.v1');
+  const otherProf = () => JSON.parse(app.window.localStorage.getItem('xiaoyu.persona.other.profile.v1') || '{}');
+
+  tap('#msgList .wx-item');   // 进小雨的聊天页
+
+  // ⚠️ 这句要挑**会让她愣一下**的（thinkPause > 0），
+  //    不然整个回复在一两个微任务里就跑完了，根本抓不住窗口。
+  const pending = app.send('你觉得我该不该去啊');
+  await app.sleep(150);
+  check('她确实在打字（窗口抓住了）', $('#input').disabled === true);
+
+  // 他等不及，点开另一个好友
+  tap('#btnBack');
+  tap('#msgList [data-open="other"]');
+
+  await pending;
+  await app.sleep(120);
+
+  check('⭐ 林砚的聊天记录**一条都没多**（回复没落到他身上）',
+    otherMsgs().length === 1, JSON.stringify(otherMsgs().map((m) => m.content)));
+  check('⭐ 林砚的记忆也没被塞进别人的东西',
+    (otherProf().facts || []).length === 1 && otherProf().facts[0] === '林砚才知道的事',
+    JSON.stringify(otherProf().facts));
+  check('林砚的好感度没被动过', otherProf().affection === 20, String(otherProf().affection));
+  check('⭐ 界面上也没有那句回复（这是他现在看着的这一页）',
+    !/她回的这一句/.test($('#messages').textContent), $('#messages').textContent.slice(0, 40));
+
+  // 小雨那边：他说出去的那句要留着（那是他真的发出去的），但没有她的回复
+  const hers = stored('xiaoyu.chat.v1');
+  check('小雨的存档里留着他发的那句（发出去的话不能丢）',
+    hers.some((m) => m.content === '你觉得我该不该去啊'), JSON.stringify(hers.map((m) => m.content)));
+  check('⭐ 小雨那边也不该冒出回复（他在小雨这儿半路走了，这一轮作废）',
+    !hers.some((m) => m.content === '她回的这一句'), JSON.stringify(hers.map((m) => m.content)));
+
+  // 切回去还能正常聊（没有被上一轮卡住）
+  tap('#btnBack');
+  tap('#msgList [data-open="default"]');
+  await app.send('那我再想想');
+  const after = stored('xiaoyu.chat.v1');
+  check('⭐ 切回来还能正常聊（没被作废的那一轮卡住）',
+    after.some((m) => m.role === 'assistant' && m.content.includes('她回的这一句')),
+    JSON.stringify(after.map((m) => m.content)));
+}
+
 // ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

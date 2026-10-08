@@ -1647,11 +1647,32 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
   }
 }
 
+/**
+ * 这一轮生成**属于**哪个好友。
+ *
+ * 为什么必须有它（用户实测："给这个发，但另一个回的我"）：
+ *   state.config / state.messages / state.profile 永远是**当前好友**那一份，
+ *   而一轮回复要跨好几个 await（先想一下 → 请求 → 兜底补一次 → 按微信节奏逐条发）。
+ *   他在她打字的时候点开另一个好友，loadPersona 就把这三样换成别人的了 ——
+ *   于是回复、记忆、好感度全落到**别人**身上。
+ *   两个好友人设又很像的时候，他甚至分不清是谁回的他。
+ *
+ * 所以：一轮开始时记下"是谁"，每个 await 之后都问一句"还是他吗"，
+ * 不是就整轮作废 —— 他已经看别人去了，这一轮不该再写任何东西。
+ *
+ * ⚠️ 判据是"**这一轮发起时**是谁"，所以由每个 async 函数自己捕获 owner 传进来 ——
+ *    不用模块级的"当前归属"变量：那样两个生成前后脚收尾时，后一个会把前一个的
+ *    标记清掉，守卫就失效了。
+ */
+const movedAway = (owner) => state.nav.active !== owner;
+
 /** 让她回复（也被"重新开始"复用） */
 async function respond() {
   setGenerating(true);
   const ctrl = new AbortController();
   state.abort = ctrl;
+  // 这一轮属于他此刻正在聊的那个人（往后每个 await 之后都要复查）
+  const owner = state.nav.active;
 
   const history = buildChatContext();
 
@@ -1763,7 +1784,8 @@ async function respond() {
     const pause = thinkPause(query);
     if (pause) {
       showTyping();
-      await sleep(pause);
+      await sleepUntil(pause, ctrl.signal);
+      if (movedAway(owner)) return;      // 他想完了（换人去了），这一轮就别再往下走
     }
 
     if (getProvider(state.config.provider).id === 'native-local') {
@@ -1797,6 +1819,10 @@ async function respond() {
     }
 
     // 她回复末尾可能带隐藏块：记忆 / 情绪 / 思考（顺序无所谓，都要擦干净）
+    //
+    // ⚠️ 下面这一整段全是**写 state** 的（记忆进 profile、情绪进 mood、
+    //    消息进 messages、最后 saveChat）——所以进这里之前必须再确认一次归属。
+    if (movedAway(owner)) return;
     const memCut = extractMemory(full);
     applyMemory(memCut.mem);
     const moodCut = parseMoodBlock(memCut.clean);
@@ -1827,6 +1853,7 @@ async function respond() {
       // 同一次请求把"内心"也要回来了（分两次太贵）
       if (!innerThought && r.thought) innerThought = r.thought;
       repaired = true;
+      if (movedAway(owner)) return;
     }
 
     // 有台词、但她没写"内心" → 补一次（前提：这一轮还没补过请求）
@@ -1837,6 +1864,7 @@ async function respond() {
         reply: parts.map((it) => it.content).join('\n'),
         signal: ctrl.signal,
       });
+      if (movedAway(owner)) return;
       if (extra) {
         innerThought = extra;
         thinkMs = Date.now() - t0;     // 补的这一次也算进"思考了多久"
@@ -1849,8 +1877,9 @@ async function respond() {
     if (!parts.length) {
       hideTyping();
       showTyping();
-      await sleep(400);
+      await sleepUntil(400, ctrl.signal);
       hideTyping();
+      if (movedAway(owner)) return;
       const fb = { role: 'assistant', content: '……嗯', ts: now() };
       state.messages.push(fb);
       appendRow(fb);
@@ -1872,8 +1901,10 @@ async function respond() {
       // 限制总时长
       if (spent + delay > totalBudget) delay = Math.max(120, totalBudget - spent);
       spent += delay;
-      await sleep(delay);
+      await sleepUntil(delay, ctrl.signal);
       hideTyping();
+      // 连发中间他要是换人了，剩下的几条就别再发（不然会发到别人那边）
+      if (movedAway(owner)) return;
 
       const msg = {
         role: 'assistant',
@@ -1894,7 +1925,7 @@ async function respond() {
       scrollToLatest();
       buzz(8);
 
-      if (!isLast) await sleep(Math.min(420, 120 + content.length * 8));
+      if (!isLast) await sleepUntil(Math.min(420, 120 + content.length * 8), ctrl.signal);
     }
 
     saveChat();
@@ -1905,6 +1936,9 @@ async function respond() {
     updateDataInfo();
   } catch (err) {
     hideTyping();
+    // ⚠️ 他换人了再出错，什么都不许做：下面那两条分支一个会往**别人**的聊天里
+    //    插"（已停止）"，另一个会把**别人**刚说的最后一句撤掉。两条都是事故。
+    if (movedAway(owner)) return;
     if (err.name === 'AbortError' || ctrl.signal.aborted) {
       appendSys('（已停止）');
     } else {
@@ -1921,11 +1955,16 @@ async function respond() {
     setGenerating(false);
     state.abort = null;
     syncSendBtn();
-    // 记录本次聊天时间：下次进来据此判断过了多久、场景该怎么变
-    state.profile.lastChatAt = now();
-    saveProfile();
-    // 他刚说完、她也回完了，重新开始"他多久没动静"的计时
-    armIdleTimer();
+    // ⚠️ 归属检查放在**最前面**：切人之后 state.profile 已经是别人的了，
+    //    在这里写 lastChatAt / saveProfile 就是往别人档案里塞东西
+    //    （而且 armIdleTimer 会拿别人的设置给别人的好友排计时器）。
+    if (!movedAway(owner)) {
+      // 记录本次聊天时间：下次进来据此判断过了多久、场景该怎么变
+      state.profile.lastChatAt = now();
+      saveProfile();
+      // 他刚说完、她也回完了，重新开始"他多久没动静"的计时
+      armIdleTimer();
+    }
   }
 }
 
@@ -1943,6 +1982,23 @@ function stopGen() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 可以被打断的等待。
+ *
+ * 为什么要它：一轮回复里有好几段"等"（先愣一下 → 逐条按微信节奏发），
+ * 他要是等不及点开了另一个好友，`switchPersona` 会 abort 掉这一轮 ——
+ * 但普通的 sleep 不会理这个信号，于是这一轮还要慢慢把时间耗完才能收尾。
+ * 而 `state.generating` 期间他是发不出消息的（发送键被挡），
+ * 表现就是"切过去以后点发送没反应，过一会儿才好"。
+ *
+ * 现在 abort 一到就立刻醒，走到归属检查那儿整轮作废。
+ */
+const sleepUntil = (ms, signal) => new Promise((resolve) => {
+  if (signal?.aborted) { resolve(); return; }
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+});
 
 // ---------------------------------------------------------------- 设置
 
@@ -3644,6 +3700,8 @@ const IDLE_SPEAK_LIMIT = 2;
 const IDLE_MS = 4 * 60 * 1000;
 
 let idleTimer = null;
+/** 这个计时器是**冲谁**计的（他中途换好友了，这一轮就不算） */
+let idleOwner = '';
 
 function clearIdleTimer() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
@@ -3655,6 +3713,7 @@ function armIdleTimer() {
   if (!state.config.autoSpeak) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (state.profile.msgCount < 4) return;        // 刚认识，别自来熟
+  idleOwner = state.nav.active;
   idleTimer = setTimeout(tryIdleSpeak, IDLE_MS);
 }
 
@@ -3662,6 +3721,10 @@ async function tryIdleSpeak() {
   idleTimer = null;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (state.generating) return;
+  // ⚠️ 他中途点开了另一个好友 —— 这个计时器是冲上一个人计的。
+  //    不加这道判断，"你半天没说话"会变成**另一个人**突然来找你说话
+  //    （用户反馈过"给这个发，另一个回我"，这是同一条线上的另一面）。
+  if (state.nav.active !== idleOwner) { armIdleTimer(); return; }
   if (!state.config.autoSpeak) return;
   if ((state.idleSpoken || 0) >= IDLE_SPEAK_LIMIT) return;
   // 没配 Key（也不是本地模型）就别白费力气
@@ -3700,6 +3763,8 @@ async function speakUp(reason) {
   setGenerating(true);
   const ctrl = new AbortController();
   state.abort = ctrl;
+  // 这一轮主动开口属于"此刻正在聊的那个人"（和 respond 同一套归属检查）
+  const owner = state.nav.active;
   showTyping();
   let said = false;
 
@@ -3787,6 +3852,7 @@ ${situation}
     // 主动开口那一轮也要擦掉这几个隐藏块（不然她会把 [[情绪]]、[[思考]] 说出来）。
     // ⚠️ 思考块一定要在这里也摘掉：现在**每一轮**都要求她写，主动开口那一轮同样会带 ——
     //    漏摘的话 `[[思考]]…` 会原样出现在聊天气泡里，比"看不到思考块"难看得多。
+    if (movedAway(owner)) return false;
     const memCut = extractMemory(full);
     applyMemory(memCut.mem);
     const moodCut = parseMoodBlock(memCut.clean);
@@ -3810,6 +3876,7 @@ ${situation}
       parts = [...parts, ...r.words.map((content) => ({ content, narr: false }))];
       // 同一次请求把"内心"也要回来了（分两次太贵）
       if (!innerThought && r.thought) innerThought = r.thought;
+      if (movedAway(owner)) return false;
     }
     if (!parts.length) { hideTyping(); return false; }
 
@@ -3818,8 +3885,9 @@ ${situation}
       const { content, narr } = parts[i];
       const isLast = i === parts.length - 1;
       showTyping();
-      await sleep(Math.min(700, Math.max(240, content.length * 40)));
+      await sleepUntil(Math.min(700, Math.max(240, content.length * 40)), ctrl.signal);
       hideTyping();
+      if (movedAway(owner)) return false;
       const msg = { role: 'assistant', content, ts: now(), mid: !isLast };
       if (narr) msg.narr = true;
       // 主动开口的内心话也挂上（她主动想起他，心里那句话挺值得看的）
@@ -3827,7 +3895,7 @@ ${situation}
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();
-      if (!isLast) await sleep(220);
+      if (!isLast) await sleepUntil(220, ctrl.signal);
     }
     saveChat();
     said = true;
@@ -3838,9 +3906,12 @@ ${situation}
     hideTyping();
     setGenerating(false);
     state.abort = null;
-    state.profile.lastChatAt = now();
-    saveProfile();
-    armIdleTimer();
+    // 和 respond 一样：他换人了就别往别人档案里写
+    if (!movedAway(owner)) {
+      state.profile.lastChatAt = now();
+      saveProfile();
+      armIdleTimer();
+    }
   }
   return said;
 }

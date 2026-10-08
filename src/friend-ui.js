@@ -71,6 +71,12 @@ export function createFriendUI(deps) {
     if (!findPersona(state.nav, target)) return false;
     if (target === state.nav.active) return true;
 
+    // ⚠️ 他可能在"她正在打字"的时候点开另一个好友。不中止的话，那一轮的回复
+    //    会在切人**之后**才回来 —— 而那时 state.messages / saveChat() 已经是
+    //    新的这个人了，回复就落到别人身上（用户实测："给这个发，另一个回的我"）。
+    //    respond() / speakUp() 里也有归属检查兜底，这里中止是为了**别白等**。
+    if (state.generating && state.abort) { try { state.abort.abort(); } catch {} }
+
     saveProfile();
     saveChat();
     saveConfig();

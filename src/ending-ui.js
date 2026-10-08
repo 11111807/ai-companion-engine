@@ -65,6 +65,9 @@ export function createEndingUI(deps) {
    * @returns {Promise<boolean>} 真的删了才返回 true
    */
   async function runEndingFlow(hit) {
+    // 删的必须是**发起这一轮**的那个人，不是"等弹窗的这几秒里变成了谁" ——
+    // 和 respond() 那套归属检查同一个道理（见 app.js 的 movedAway）。
+    const owner = state.nav.active;
     const first = await openConfirm({
       ...ENDING_DIALOG.first,
       body: `${ENDING_DIALOG.first.body}\n\n（你写的是"${String(hit).slice(0, 16)}"）`,
@@ -80,7 +83,8 @@ export function createEndingUI(deps) {
       toast('好，那就不动它', 2000);
       return false;
     }
-    deleteFriend(state.nav.active || DEFAULT_ID);
+    if (state.nav.active !== owner) return false;
+    deleteFriend(owner || DEFAULT_ID);
     showTab('msgs');     // 好友删了 → 回到消息列表（那里会提示"请添加好友"）
     return true;
   }
