@@ -533,15 +533,6 @@
         </div>
       </div>
       <div class="wx-cell">
-        <label for="perUserJob">你的职业 / 专业</label>
-        <input id="perUserJob" type="text" maxlength="20" placeholder="程序员、会计、临床医学、自由职业…" />
-        <div class="wx-chips" id="chipsUserJob"></div>
-        <div class="wx-cell-note">
-          同行的话你俩能聊到一块去；不同行她就只聊自己领域里的日常，不硬接你的专业 ——
-          会说"这我不懂"，但不会拿这一句把你堵回去。
-        </div>
-      </div>
-      <div class="wx-cell">
         <label for="perRelation">她和你是什么关系</label>
         <input id="perRelation" type="text" maxlength="12" placeholder="同学、同事、网友、邻居…" />
         <div class="wx-chips" id="chipsRelation"></div>
@@ -671,23 +662,6 @@
       把本页「添加到主屏幕」，就能像 App 一样打开。<br />
       页面本身离线也能打开，聊天需要联网。
     </div>
-
-    <div class="wx-group-title">聊天</div>
-    <div class="wx-group">
-      <div class="wx-cell between">
-        <span class="wx-cell-label">显示她的"内心想法"</span>
-        <div class="wx-seg" id="segShowThink">
-          <button type="button" data-v="1">显示</button>
-          <button type="button" data-v="0">不显示</button>
-        </div>
-      </div>
-      <div class="wx-cell-note">
-        打开后，她每轮会先写一句心里话 —— 界面上折叠成一个小块（点一下展开）。<br />
-        台词是"她想让你听到的"，内心想法是"她没说出口的那一层"。关掉的话连写都不写。
-        <br /><br />
-        <b id="thinkStatus">还没聊过</b>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -775,6 +749,19 @@
       <div class="wx-cell-note">
         开着的话，你打开聊天页却半天不说话、或者从后台切回来，她会主动起个话头。一次最多两次。
       </div>
+
+      <div class="wx-cell between">
+        <span class="wx-cell-label">显示她的"内心想法"</span>
+        <div class="wx-seg" id="segShowThink">
+          <button type="button" data-v="1">显示</button>
+          <button type="button" data-v="0">不显示</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        打开后，她每轮会先写一句心里话 —— 界面上折叠成一个小块（点一下展开）。台词是
+        "她想让你听到的"，内心想法是"她没说出口的那一层"。关掉的话连写都不写。<br />
+        <b id="thinkStatus">还没聊过</b>
+      </div>
     </div>
 
     <div class="wx-group-title">数据</div>
@@ -794,6 +781,15 @@
       <div class="wx-cell-note">
         这两项只影响<b>这个好友</b>：她的聊天记录和她记住的事。
         别的 AI 好友的记录、记忆都不动。
+      </div>
+
+      <div class="wx-cell between">
+        <span class="wx-cell-label">删除这个好友</span>
+        <button class="wx-btn-text danger" id="btnDeleteFriend2">删除</button>
+      </div>
+      <div class="wx-cell-note">
+        连她一起删掉：她的聊天记录、记忆、情绪、好感度都会清空，人从好友列表里消失。
+        <b>只有这一个</b>，别的 AI 好友不受影响。删之前会问你一次。
       </div>
     </div>
 

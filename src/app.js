@@ -718,8 +718,12 @@ function personaForPrompt() {
     gender: isMale() ? 'm' : 'f',
     age: Number(c.herAge) || CHARACTER.age,
     job: String(c.herJob || '').trim(),
-    // 他的职业/专业：她据此判断"是不是同行"——同行能聊专业，不同行只聊自己那摊
-    userJob: String(c.userJob || '').trim(),
+    // 他的职业/专业：她据此判断"是不是同行"——同行能聊专业，不同行只聊自己那摊。
+    // ⚠️ 来源是**「我」的资料**（全局一份），不再是人设页里单独填的一格 ——
+    //    用户要求过："我的资料是全局设置的，每个好友知道我的资料是一致的，
+    //    不需要在建立好友时的人格界面再填一遍我的职业"。
+    //    以前 config.userJob 是好友级的一份副本，改一次只有当前好友知道。
+    userJob: String(myMe().job || '').trim(),
     birthday: bd || null,
     traits: Array.isArray(c.herTraits) ? c.herTraits : [],
     traitNote: String(c.herTraitNote || '').trim(),
@@ -950,15 +954,54 @@ function thinkHTML(msg, out) {
 //   - 前缀变了（清空、导入、删记录、换好友）→ 老实全画
 let _drawn = 0;      // 已经画进 DOM 的消息条数
 let _sigs = [];      // 每条画进去时的签名（用来判断前缀有没有被改过）
+let _from = 0;       // **最前面**画到了第几条（比它更早的还没画，见 CHAT_PAGE）
+let _expanded = false;   // 他手动往上翻过吗 —— 翻过就不再强制"只留最近那批"
+
+/**
+ * 首屏先画最近多少条。
+ *
+ * 为什么要有它（用户反馈："小雨那个聊天框点进去会慢，有明显延迟"）：
+ *   小雨是默认好友、聊得最久，记录可能上千条 —— 而 `renderChat` 以前是
+ *   **全量重建 DOM**：1000 条就是 1000+ 个带头像和气泡的节点。
+ *   在手机上，这一步的瓶颈不是 JS（构造 HTML 很快），而是**样式计算和布局**：
+ *   节点一多，浏览器要算上千个元素的位置，肉眼可见地卡一下。
+ *   所以首屏只画最近这一批，更早的等他往上翻时再展开 ——
+ *   聊天的绝大部分时间都只看最后几十条。
+ */
+const CHAT_PAGE = 200;
 
 // 签名里要带上 think：不然"只补了内心想法"这种变化会被当成没变，增量渲染就不更新它
 const msgSig = (m) => `${m.role}|${m.narr ? 'n' : ''}|${m.ts}|${m.think || ''}|${m.content}`;
 
-function renderChat() {
+/** 顶部那条"上面还有 N 条更早的" */
+const moreHTML = (from) => (from > 0
+  ? `<div class="wx-more" data-more="1">上面还有 ${from} 条更早的 · 点这里展开</div>`
+  : '');
+
+/** 展开更早的一批（点顶部那条时调用） */
+function loadEarlierMessages() {
+  if (_from <= 0) return;
+  const target = Math.max(0, _from - CHAT_PAGE);
+  // ⚠️ 这里**不能**用 resetChatRender()：它会连 `_from` 一起归零，
+  //    而我们要的正是"往前挪一段" —— 归零之后重画时又会被 floor 顶回最近 200 条，
+  //    点了像没反应（踩过）。所以只清增量记账。
+  _drawn = 0;
+  _sigs = [];
+  _from = target;
+  _expanded = true;     // 翻过之后别再被 floor 顶回最近 200 条
+  renderChat({ keepScroll: true });
+}
+
+function renderChat({ keepScroll = false } = {}) {
   const box = $('#messages');
   if (!box) return;
 
   const msgs = state.messages;
+  // 首屏窗口：最前面至少留最近 CHAT_PAGE 条（手动往上翻过就不再强制）
+  const floor = Math.max(0, msgs.length - CHAT_PAGE);
+  if (!_expanded && _from < floor) _from = floor;
+  if (_from > msgs.length) _from = 0;
+
   const canAppend = _drawn > 0 && _drawn <= msgs.length
     && _sigs.length >= _drawn
     && msgs.slice(0, _drawn).every((m, i) => msgSig(m) === _sigs[i]);
@@ -973,9 +1016,9 @@ function renderChat() {
     piece.innerHTML = html;
     for (const n of [...piece.children]) box.appendChild(n);
   } else {
-    let html = '';
-    let prev = null;
-    for (let i = 0; i < msgs.length; i++) {
+    let html = moreHTML(_from);
+    let prev = _from > 0 ? msgs[_from - 1] : null;
+    for (let i = _from; i < msgs.length; i++) {
       html += messageHTML(msgs[i], prev, i);
       prev = msgs[i];
     }
@@ -984,7 +1027,14 @@ function renderChat() {
   }
   _drawn = msgs.length;
 
-  scrollToLatest(true);
+  if (keepScroll) {
+    // 展开了更早的一批：别把视线甩到最底下 —— 停在新展开那批的末尾
+    const first = box.querySelector(`[data-i="${_from + CHAT_PAGE}"]`) || box.firstElementChild;
+    if (first) first.scrollIntoView?.({ block: 'start' });
+    else scrollToLatest(true);
+  } else {
+    scrollToLatest(true);
+  }
   renderMoodStrip();
 }
 
@@ -992,6 +1042,8 @@ function renderChat() {
 function resetChatRender() {
   _drawn = 0;
   _sigs = [];
+  _from = 0;          // 连"画到哪一条"也一起重置（换好友之后窗口要重新算）
+  _expanded = false;  // 换人/清空之后回到"只看最近一批"
 }
 
 function appendRow(msg) {
@@ -1270,22 +1322,43 @@ async function runEndingFlow(hit) {
     toast('好，那就不动它', 2000);
     return false;
   }
-  wipeEverything();
+  deleteFriend(state.nav.active || DEFAULT_ID);
   showTab('msgs');     // 好友删了 → 回到消息列表（那里会提示"请添加好友"）
   return true;
+}
+
+/**
+ * 设置页里的「删除这个好友」。
+ *
+ * 和"终局"那套**故意做得不一样**（用户要求）：那边是两轮确认 + 一句"是否忘记
+ * 你们的一切"，因为它是剧情触发、要拦住手滑；这里是他在设置页里主动点的，
+ * **一轮确认**就够 —— 文案也直说"删除"。
+ */
+async function confirmDeleteFriend() {
+  const name = herName();
+  const ok = await openConfirm({
+    title: `删除「${name}」？`,
+    body: '她的聊天记录、她记得的事、好感度都会一起清掉，人也会从好友列表里消失。\n'
+      + '**只有这一个**，别的 AI 好友不受影响。',
+    yes: '删除',
+    no: '取消',
+  });
+  if (!ok) return;
+  deleteFriend(state.nav.active || DEFAULT_ID);
 }
 
 /**
  * 忘记你们的一切 —— 按用户的要求，**连这个好友一起删掉**：
  * 「删档后直接删掉好友，如果此时消息页没有对话框，好友页没有好友，注明，请添加好友」。
  *
- * 所以是三步：
+ * 终局那条路和设置页的「删除」都走它。
+ *
+ * 三步：
  *   1. 把这个好友的三个存档 key 从 localStorage 里删掉（真删，不是留着）
  *   2. 从好友索引里摘掉（默认好友也能删，打 noDefault 标记，见 personas.js）
  *   3. 还有别人 → 切过去停在消息列表；一个都没有 → 清空内存 + 显示"请添加好友"
  */
-function wipeEverything() {
-  const id = state.nav.active || DEFAULT_ID;
+function deleteFriend(id) {
 
   // 1) 真删存档。默认好友用的是老 key，其他好友是各自的命名空间 —— 都由 keysFor 给。
   const keys = keysFor(id);
@@ -1559,12 +1632,15 @@ async function nativeStreamChat({ systemPrompt, messages, temperature, maxTokens
  *   但"这一轮白聊了"是他明确不能接受的，所以在渲染前补一道：
  *   再问一次，**只要台词**，跟原来那个动作拼起来。
  *
+ * ⚠️ 顺便**把"思考"一起要回来**：她要是连动作都只写了一块，多半也没写内心。
+ *    分两次请求太贵（一次对话变三次），所以这里一次问齐。
+ *
  * 三条自我约束：
  *   1. 只在**整轮都是旁白**时触发 —— 正常回复一次请求都不会多发
  *   2. 一轮最多补一次；补回来还是旁白就认了（**绝不循环**）
  *   3. 补的过程失败（断网/超时）就当没发生，原来的旁白照常显示
  *
- * @returns {Promise<string[]>} 补回来的台词（可能为空数组）
+ * @returns {Promise<{words: string[], thought: string}>}
  */
 async function askForWords({ systemPrompt, history, narration, signal }) {
   const messages = [
@@ -1574,14 +1650,15 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
       role: 'user',
       content: '（系统提示：你刚才只发了一个动作，什么都没说 —— 他现在在等你的回答。'
         + '请直接说你要说的话，1-2 条，把该回答的答上；'
-        + '不要再重复那个动作，也不要再写括号旁白。）',
+        + '不要再重复那个动作，也不要再写括号旁白。'
+        + '另外别忘了最前面那块 [[思考]] —— 你对下一句话的心里话。）',
     },
   ];
   const args = {
     systemPrompt,
     messages,
     temperature: Number(state.config.temperature) || 1.0,
-    maxTokens: 120,
+    maxTokens: 140,
     signal,
   };
 
@@ -1599,11 +1676,67 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
         onDelta(piece) { out += piece; },
       });
     }
-    // 她可能又顺手带上隐藏块（记忆 / 情绪 / 思考）→ 擦掉，这里只取台词
+    // 她可能又顺手带上隐藏块（记忆 / 情绪 / 思考）→ 擦掉，这里只取台词 + 思考
     const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
-    return replyItems(cut.clean, 1).filter((it) => !it.narr).map((it) => it.content);
+    const words = replyItems(cut.clean, 1).filter((it) => !it.narr).map((it) => it.content);
+    return { words, thought: cut.thought };
   } catch {
-    return [];
+    return { words: [], thought: '' };
+  }
+}
+
+/**
+ * 兜底：她这一轮**没写"思考"**，把那一句补回来。
+ *
+ * 为什么要在代码里兜（用户连问了两轮"还是没有看到"）：
+ *   思考块是**模型按格式写出来的**，提示词只能提高概率 ——
+ *   而"没写"在界面上和"功能坏了"长得一模一样。
+ *   所以这里补一次"只要内心"的短请求（maxTokens 80）：
+ *     - 只在她**没写**时触发 —— 写了就一次请求都不会多发
+ *     - 一轮最多补一次；补不回来就认了（**绝不循环**）
+ *     - 失败就当没发生，原来的回复照常显示
+ *
+ * @returns {Promise<string>} 补回来的那句心里话（可能为空串）
+ */
+async function askForThought({ systemPrompt, history, reply, signal }) {
+  const messages = [
+    ...history,
+    { role: 'assistant', content: reply },
+    {
+      role: 'user',
+      content: '（系统提示：你刚才忘了写"内心"那一块。现在**只**输出那一块，'
+        + '格式是：[[思考]]你此刻对下一句话的心里话（20~50 字，第一人称，'
+        + '不写动作、不复述他已经知道的话）。不要重复你说过的台词，不要写别的。）',
+    },
+  ];
+  const args = {
+    systemPrompt,
+    messages,
+    temperature: Number(state.config.temperature) || 1.0,
+    maxTokens: 80,
+    signal,
+  };
+
+  try {
+    let out = '';
+    if (getProvider(state.config.provider).id === 'native-local') {
+      out = await nativeStreamChat(args);
+    } else {
+      await streamChat({
+        ...args,
+        apiKey: state.config.apiKey.trim(),
+        endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
+        model: state.config.model || DEFAULT_MODEL,
+        thinking: false,
+        onDelta(piece) { out += piece; },
+      });
+    }
+    // 她可能直接回了心里话、也可能还是带着 [[思考]] 标记 —— 两种都要能取到
+    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
+    const thought = cut.thought || cut.clean;
+    return String(thought || '').replace(/\[\[[^\]]*\]\]/g, '').trim().slice(0, 120);
+  } catch {
+    return '';
   }
 }
 
@@ -1757,28 +1890,49 @@ async function respond() {
     const moodCut = parseMoodBlock(memCut.clean);
     // 她的内心想法（[[思考]]）：摘出来挂在**第一条**消息上，界面上折叠成一个小块
     const thoughtCut = parseThoughtBlock(moodCut.clean);
-    const innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
+    // let：她没写的话下面会补一次（见 askForThought）
+    let innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
     // 模型不配合时（没带情绪块）用他刚说的那句话本地兜底推一个
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')?.content || '';
     applyMood(moodCut.mood || guessMood(lastUser));
 
     let parts = replyItems(thoughtCut.clean, Number(state.config.burst) || 2);
     // 从"收到他那句话"到"回复生成完"的真实耗时（毫秒）→ 界面上显示成"思考 1.4 秒"
-    const thinkMs = Date.now() - t0;
-    // 记一笔"这一轮她到底写没写思考"：设置页里会显示，好让"没写"和"功能坏了"分得清
-    state.lastThought = { ok: !!innerThought, ms: thinkMs };
+    let thinkMs = Date.now() - t0;
 
     // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
     // 而不是让他再问一遍。见 askForWords 的说明。
+    // 这一轮已经补过一次请求了吗 —— **最多补一次**，两个兜底不能叠着花两次钱
+    let repaired = false;
     if (parts.length && parts.every((it) => it.narr)) {
-      const words = await askForWords({
+      const r = await askForWords({
         systemPrompt,
         history,
         narration: parts.map((it) => it.content).join('；'),
         signal: ctrl.signal,
       });
-      parts = [...parts, ...words.map((content) => ({ content, narr: false }))];
+      parts = [...parts, ...r.words.map((content) => ({ content, narr: false }))];
+      // 同一次请求把"内心"也要回来了（分两次太贵）
+      if (!innerThought && r.thought) innerThought = r.thought;
+      repaired = true;
     }
+
+    // 有台词、但她没写"内心" → 补一次（前提：这一轮还没补过请求）
+    if (!innerThought && !repaired && state.config.showThink !== false && parts.length) {
+      const extra = await askForThought({
+        systemPrompt,
+        history,
+        reply: parts.map((it) => it.content).join('\n'),
+        signal: ctrl.signal,
+      });
+      if (extra) {
+        innerThought = extra;
+        thinkMs = Date.now() - t0;     // 补的这一次也算进"思考了多久"
+      }
+    }
+    // 两个兜底都跑完了，才记"这一轮她到底写没写思考"
+    //（设置页里会显示，好让"没写"和"功能坏了"分得清）
+    state.lastThought = { ok: !!innerThought, ms: thinkMs };
 
     if (!parts.length) {
       hideTyping();
@@ -2002,12 +2156,15 @@ function syncSettingsUI() {
   // 长得一模一样。这一行让他一眼看出是哪一环，也方便他直接把结论告诉我。
   if ($('#thinkStatus')) {
     const t = state.lastThought;
-    $('#thinkStatus').textContent = !t
-      ? '还没聊过：跟她说一句话就能看到'
-      : t.ok
-        ? `最近一轮：她写了 ✓（${(t.ms / 1000).toFixed(1)} 秒）`
-        : '最近一轮：她没写 ✗ —— 多半是模型没按格式输出（再聊一句试试；'
-          + '手机本地的小模型经常不遵守这种格式要求）';
+    $('#thinkStatus').textContent = state.config.showThink === false
+      // ⚠️ 先看开关：如果是关着的，"看不到思考"就是他自己关的，别让他以为坏了
+      ? '现在是「不显示」—— 切成「显示」她才会写'
+      : !t
+        ? '还没聊过：跟她说一句话就能看到'
+        : t.ok
+          ? `最近一轮：她写了 ✓（${(t.ms / 1000).toFixed(1)} 秒）`
+          : '最近一轮：她没写 ✗ —— 已经自动补过一次了；要是补的也没有，'
+            + '多半是模型不遵守格式（手机本地的小模型尤其容易）';
   }
   updateDataInfo();
 }
@@ -2651,16 +2808,10 @@ const AFF_PRESETS = [
 ];
 
 /**
- * 「你的职业 / 专业」的快捷标签。
- *
- * 为什么要有：填了之后她能判断出你俩是不是同行 ——
- * 同行就能聊到一块，不同行她就只聊自己那摊、不硬接你的专业。
- * 光靠打字也认得出（profession.js 里有关键词表），标签只是省事。
+ * ⚠️ 这里原来还有一组「你的职业 / 专业」的快捷标签（USER_JOB_PRESETS）。
+ * 这一轮删掉了：那一格人设页的输入框已经去掉 —— 我的职业现在只有
+ * **「我」的资料**那一处（全局一份，所有好友看到的一致），不再每个好友填一遍。
  */
-const USER_JOB_PRESETS = [
-  '程序员', '设计师', '学生', '老师', '医生', '会计',
-  '销售', '运营', '土木工程', '厨师', '护士', '自由职业',
-];
 
 let perAvatar = '';        // 人设页里正在选的头像 emoji
 let perTraits = [];        // 正在选的性格标签
@@ -2751,7 +2902,6 @@ function updateAffNote() {
 function renderPersonaChips() {
   renderChips('#perAvatarList', HER_EMOJIS, (v) => v === perAvatar);
   renderChips('#chipsRelation', RELATION_PRESETS, (v) => v === ($('#perRelation').value || '').trim());
-  renderChips('#chipsUserJob', USER_JOB_PRESETS, (v) => v === ($('#perUserJob').value || '').trim());
   renderChips('#chipsTraits', TRAIT_PRESETS, (v) => perTraits.includes(v));
   renderChips('#chipsScene', SCENE_PRESETS, (v) => v === ($('#perScene').value || '').trim());
   renderChips('#chipsAff', AFF_PRESETS, (v) => v === perAff);
@@ -2783,7 +2933,6 @@ function openPersona({ fromSettings = false, asNew = false } = {}) {
   syncTraitNoteLabel();
   $('#perAge').value = c.herAge || '';
   $('#perJob').value = c.herJob || '';
-  $('#perUserJob').value = c.userJob || '';
   $('#perRelation').value = c.herRelation || '';
   $('#perBirthday').value = c.herBirthday || '';
   $('#perTraitNote').value = c.herTraitNote || '';
@@ -2876,7 +3025,6 @@ function applyPersona() {
   const age = Number($('#perAge').value);
   c.herAge = age >= 14 && age <= 80 ? Math.round(age) : 0;
   c.herJob = $('#perJob').value.trim().slice(0, 20);
-  c.userJob = $('#perUserJob').value.trim().slice(0, 20);
   c.herRelation = $('#perRelation').value.trim().slice(0, 12);
 
   const bd = parseBirthday($('#perBirthday').value);
@@ -2943,7 +3091,6 @@ function resetPersona() {
   c.herGender = 'f';
   c.herAge = 0;
   c.herJob = '';
-  c.userJob = '';
   c.herRelation = '';
   c.herBirthday = '';
   c.herTraits = [];
@@ -3069,6 +3216,13 @@ function jumpToMessage(i) {
   const m = state.messages[i];
   if (!m) return;
   $('#screen-memory').classList.remove('show');
+  // ⚠️ 目标可能在首屏窗口之外（更早的那些还没画）—— 先把窗口往前挪到它附近，
+  //    否则 querySelector 找不到那一行，点搜索结果就像没反应
+  if (i < _from) {
+    _from = Math.max(0, i - 50);
+    resetChatRender();
+    renderChat({ keepScroll: true });
+  }
   requestAnimationFrame(() => {
     const box = $('#messages');
     const row = box?.querySelector(`[data-i="${i}"]`);
@@ -3743,18 +3897,23 @@ ${situation}
     const moodCut = parseMoodBlock(memCut.clean);
     if (moodCut.mood) applyMood(moodCut.mood);
     const thoughtCut = parseThoughtBlock(moodCut.clean);
-    const innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
+    // let：她没写的话下面会补一次（见 askForThought）
+    let innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
 
     let parts = replyItems(thoughtCut.clean, 2);
     // 主动开口那一轮同理：只发动作不说话，等于白开口一次
+    // 这一轮已经补过一次请求了吗 —— **最多补一次**，两个兜底不能叠着花两次钱
+    let repaired = false;
     if (parts.length && parts.every((it) => it.narr)) {
-      const words = await askForWords({
+      const r = await askForWords({
         systemPrompt,
         history,
         narration: parts.map((it) => it.content).join('；'),
         signal: ctrl.signal,
       });
-      parts = [...parts, ...words.map((content) => ({ content, narr: false }))];
+      parts = [...parts, ...r.words.map((content) => ({ content, narr: false }))];
+      // 同一次请求把"内心"也要回来了（分两次太贵）
+      if (!innerThought && r.thought) innerThought = r.thought;
     }
     if (!parts.length) { hideTyping(); return false; }
 
@@ -3935,6 +4094,8 @@ function bindComposer() {
   // 她的"内心想法"：点那一行展开 / 收起。
   // 用事件委托（气泡是动态插入的，一个个绑会漏）。
   $('#messages').addEventListener('click', (e) => {
+    // 顶部那条"上面还有 N 条更早的"：点了往前展开一批
+    if (e.target.closest('[data-more]')) { loadEarlierMessages(); return; }
     const box = e.target.closest('.wx-think');
     if (!box) return;
     const head = e.target.closest('.wx-think-head');
@@ -4056,11 +4217,6 @@ function bindPersonaForm() {
     renderChips('#chipsAff', AFF_PRESETS, (v) => v === perAff);
     updateAffNote();
   });
-
-  // 我的职业 / 专业（只影响她知道什么、以及"同行能不能聊专业"）
-  onChip('#chipsUserJob', (v) => { $('#perUserJob').value = v; renderPersonaChips(); });
-  $('#perUserJob').addEventListener('input', () =>
-    renderChips('#chipsUserJob', USER_JOB_PRESETS, (v) => v === $('#perUserJob').value.trim()));
 
   // 性格（最多 4 个）
   onChip('#chipsTraits', (t) => {
@@ -4186,6 +4342,9 @@ function bindSettingsForm() {
     closeFriendSettings();
     openMemory();
   });
+  // 删好友：**单轮确认**就够了（用户特意说过："这个删好友的按钮可以干脆一点，
+  // 只需要一个弹窗选择是否即可，不要和文中死亡判定的弹窗一致，两者分开"）
+  $('#btnDeleteFriend2')?.addEventListener('click', confirmDeleteFriend);
 }
 
 /** 「你是」和「她的样子」：名字、头像 */

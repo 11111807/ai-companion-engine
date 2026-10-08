@@ -183,6 +183,32 @@ console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
     /\[\[情绪\]\]/.test(sys) && /【每一轮都要写：你的情绪】/.test(sys));
 }
 
+console.log('\n[4.1] 她没写"思考"时，自动补一次（用户连问两轮"还是没有看到"）...');
+{
+  // 模型第一轮没写思考 → 代码补一次"只要内心"的短请求（见 app.js 的 askForThought）
+  const app = mkApp({ replies: ['嗯，你说呀', '[[思考]]他今天怎么这么客气…是不是有事要问我'] });
+  const $ = app.$;
+  tap(app, '#msgList .wx-item');
+  await app.send('在吗，想跟你说个事');
+
+  check('⭐ 补了一次请求（一共两次）', app.requests.length === 2, String(app.requests.length));
+  check('⭐ 补回来的思考画出来了', !!$('#messages .wx-think'));
+  check('内容就是补回来的那句',
+    /他今天怎么这么客气/.test($('#messages .wx-think-body')?.textContent || ''),
+    $('#messages .wx-think-body')?.textContent);
+  const ask = JSON.stringify(app.lastRequest().messages);
+  check('补的请求里带着"你忘了写内心"的纠正',
+    /忘了写/.test(ask) && /内心/.test(ask) && /\[\[思考\]\]/.test(ask));
+  check('只补一次，不循环', app.requests.length === 2);
+
+  // 她已经写了的时候：一次请求都不多发（不能为了兜底每轮都花两次钱）
+  const app2 = mkApp({ replies: ['[[思考]]他总算来了\n\n在的呀'] });
+  tap(app2, '#msgList .wx-item');
+  await app2.send('在吗');
+  check('⭐ 她写了的轮次只有一次请求（兜底不白花钱）', app2.requests.length === 1,
+    String(app2.requests.length));
+}
+
 // ---------------------------------------------------------------- 5) 停顿
 console.log('\n[5] 难的问题要多想一下（但不能久等）...');
 {
@@ -366,6 +392,45 @@ console.log('\n[8] 输入框一定要能点、能输入（用户："下面的文
   check('点空白能取消弹窗', $('#confirmMask').hidden === true);
   for (let i = 0; i < 300 && $('#input').disabled; i++) await app.sleep(30);
   check('⭐ 取消之后输入框仍然可用', $('#input').disabled === false);
+}
+
+// ---------------------------------------------------------------- 9) 长记录首屏
+console.log('\n[9] 记录很长时只画最近一批（用户："点进小雨那个聊天框会慢，有明显延迟"）...');
+{
+  const chat = Array.from({ length: 900 }, (_, i) => ({
+    role: i % 2 ? 'assistant' : 'user',
+    content: `第${i}条`,
+    ts: Date.now() - (900 - i) * 60000,
+  }));
+  const app = bootApp({
+    seed: {
+      'xiaoyu.chat.v1': chat,
+      'xiaoyu.profile.v1': { msgCount: 900 },
+      'xiaoyu.config.v1': { personaDone: true },
+    },
+    replies: ['[[思考]]嗯\n\n在的呀'],
+  });
+  windows.push(app.dom.window);
+  const $ = app.$;
+  tap(app, '#msgList .wx-item');
+
+  check('⭐ 首屏只画最近 200 条（不是 900 个气泡全画出来）',
+    app.$$('#messages .wx-row').length === 200, String(app.$$('#messages .wx-row').length));
+  check('顶部有"展开更早的"入口',
+    /上面还有 700 条/.test($('#messages .wx-more')?.textContent || ''),
+    $('#messages .wx-more')?.textContent);
+
+  tap(app, '#messages .wx-more');
+  check('⭐ 点一下往前展开一批（400 条）',
+    app.$$('#messages .wx-row').length === 400, String(app.$$('#messages .wx-row').length));
+  check('入口文案跟着更新', /上面还有 500 条/.test($('#messages .wx-more')?.textContent || ''),
+    $('#messages .wx-more')?.textContent);
+
+  await app.send('你好');
+  // 400 条（展开后的）+ 我这一条 + 她回的那条 = 402
+  check('新消息照常追加（增量渲染没被窗口搞坏）',
+    app.$$('#messages .wx-row').length === 402, String(app.$$('#messages .wx-row').length));
+  check('她那条回复在最底下', /在的呀/.test(app.$$('#messages .wx-row').at(-1)?.textContent || ''));
 }
 
 // ---------------------------------------------------------------- 收尾

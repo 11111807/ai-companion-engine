@@ -322,6 +322,22 @@ body { background: var(--wx-bg); }
 }
 .wx-confirm-no:active { filter: brightness(.95); }
 
+/* 顶部"上面还有 N 条更早的"：首屏只画最近 200 条，更早的点它展开
+   （用户反馈"小雨那个聊天框点进去会慢" —— 上千个气泡节点在手机上布局很贵） */
+.wx-more {
+  margin: 10px auto 4px;
+  padding: 5px 12px;
+  width: fit-content;
+  max-width: 90%;
+  font-size: 12px;
+  color: #8a8a8a;
+  background: rgba(0, 0, 0, .035);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.wx-more:active { background: rgba(0, 0, 0, .07); }
+
 /* ---------------- 她的"思考"折叠块 ----------------
  *
  * 用户要求："把她的内心想法展示出来，用别的气泡做区分，可以下拉展开的"。

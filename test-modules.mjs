@@ -412,10 +412,22 @@ console.log('\n[9] ending.js —— 旁白里的"终局"要认出来（但别乱
   check('⭐ 用户举的例子能认出来',
     ending.detectEnding('很多年后我们都老了，一起离开了这个世界', { narr: true }) !== '',
     ending.detectEnding('很多年后我们都老了，一起离开了这个世界', { narr: true }));
-  check('"一起老去"能认', ending.detectEnding('（我们一起老去，白头到老）', { narr: true }) !== '');
-  check('"都死了"能认', ending.detectEnding('（后来我们都死了）', { narr: true }) !== '');
-  check('葬礼 / 墓前能认', ending.detectEnding('（画面转到墓前）', { narr: true }) !== '');
+  check('⭐「她去世了」能认', ending.detectEnding('（她去年去世了）', { narr: true }) !== '');
+  check('⭐「都死了」能认', ending.detectEnding('（后来我们都死了）', { narr: true }) !== '');
+  check('葬礼 / 墓前 / 忌日能认',
+    ending.detectEnding('（画面转到墓前）', { narr: true }) !== ''
+    && ending.detectEnding('（那天是他的忌日）', { narr: true }) !== '');
 
+  // ⭐ 用户纠正的那条：核心判断必须是"至少一方死亡"，
+  //   不能因为"一起老去/白头到老/走了"就弹窗
+  check('⭐「我们一起走了出去」不算（用户点名的误判）',
+    ending.detectEnding('（我们一起走了出去）', { narr: true }) === '');
+  check('⭐「白头到老 / 一起老去」不算（那是浪漫，不是结局）',
+    ending.detectEnding('（希望我们能白头到老）', { narr: true }) === ''
+    && ending.detectEnding('（我们一起老去）', { narr: true }) === '');
+  check('⭐「很多年后」不算', ending.detectEnding('（很多年以后，我们还是这样）', { narr: true }) === '');
+  check('⭐「他走了」不算（中文里多半是"出门了"）',
+    ending.detectEnding('（他走了）', { narr: true }) === '');
   check('⭐ 台词里说"我要跟你走一辈子"不算（那是表白）',
     ending.detectEnding('我要跟你走一辈子', { narr: false }) === '');
   check('⭐ "笑死我了"不算（中文里全是夸张用法）',

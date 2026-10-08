@@ -467,8 +467,8 @@ console.log('\n[15] 她只发了一个动作就没了 → 自动把欠的那句�
     /只发了一个动作/.test(ask) && /在等你的回答/.test(ask));
   check('补的请求把它刚才那个动作也带上了（上下文接得上）',
     /抬头看墙上的钟/.test(ask));
-  check('补的请求只要一句话（maxTokens 压到 120，不浪费）',
-    app.lastRequest().max_tokens === 120, String(app.lastRequest().max_tokens));
+  check('补的请求压得很短（maxTokens 140，不浪费）',
+    app.lastRequest().max_tokens === 140, String(app.lastRequest().max_tokens));
 }
 
 console.log('\n[16] 兜底的兜底：补回来还是旁白就不再纠缠 ...');
@@ -489,7 +489,10 @@ console.log('\n[16] 兜底的兜底：补回来还是旁白就不再纠缠 ...')
 
 console.log('\n[17] 正常回复不会多花一次请求 ...');
 {
-  const app = mkApp({ replies: ['好呀', '（这条不该被用到）'] });
+  // ⚠️ 回复里要**带上思考块**：她没写内心的话，代码会补一次"只要内心"的请求
+  //    （见 app.js 的 askForThought）—— 那是刻意的兜底，所以这里用"完整"的回复
+  //    来验证"该发一次就只发一次"。
+  const app = mkApp({ replies: ['[[思考]]他今天听着挺累的\n\n好呀', '（这条不该被用到）'] });
   await app.send('今天好累');
   check('⭐ 她正常回话时只有一次请求（兜底不额外收费）', app.requests.length === 1,
     String(app.requests.length));
