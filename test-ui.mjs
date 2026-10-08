@@ -130,6 +130,14 @@ console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
   check('耗时也存进了消息里（重画之后还在）',
     Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'))
       .find((m) => m.think)?.thinkMs) > 0);
+  // 设置页里的诊断：让"模型没写"和"功能坏了"分得清
+  tap(app, '.wx-tab[data-tab="me"]');
+  tap(app, '#meCard [data-me="settings"]');
+  check('⭐ 设置页显示"最近一轮她写没写思考"',
+    /她写了 ✓/.test($('#thinkStatus').textContent), $('#thinkStatus').textContent);
+  tap(app, '#btnCloseSettings');
+  tap(app, '.wx-tab[data-tab="msgs"]');
+  tap(app, '#msgList .wx-item');
   // 用户要的顺序：思考 → 旁白 → 台词（心里怎么想 → 手上怎么做 → 嘴上怎么说）
   check('⭐ 顺序是 思考 → 旁白 → 台词', (() => {
     const nodes = [...$('#messages').children];
@@ -171,6 +179,8 @@ console.log('\n[4] 她的"内心想法"：折叠气泡 + 全局开关 ...');
   await app.send('那我们聊点别的');
   const sys = app.lastRequest().messages.find((m) => m.role === 'system').content;
   check('⭐ 关掉后提示词里不再要求她写内心话', !/\[\[思考\]\]/.test(sys));
+  check('但情绪块的要求还在（那是另一件事，不该跟着一起关）',
+    /\[\[情绪\]\]/.test(sys) && /【每一轮都要写：你的情绪】/.test(sys));
 }
 
 // ---------------------------------------------------------------- 5) 停顿

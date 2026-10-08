@@ -69,7 +69,7 @@ import {
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
-import { parseThoughtBlock, thinkPause, thoughtBlock } from './thought.js';
+import { parseThoughtBlock, thinkPause } from './thought.js';
 import { detectEnding, DREAM_NARRATION, ENDING_DIALOG } from './ending.js';
 import { APK_URL } from './config.js';
 
@@ -904,7 +904,8 @@ function thinkHTML(msg, out) {
   if (!msg?.think || out) return '';
   if (state.config.showThink === false) return '';   // 设置里关掉了就整块不画
   const ms = Number(msg.thinkMs);
-  const secs = ms > 0 ? ` ${(ms / 1000).toFixed(1)} 秒` : '';
+  // 下限 0.1 秒：别显示成"思考 0.0 秒"（本地推理可能真的很快，但那个数字看着像 bug）
+  const secs = ms > 0 ? ` ${Math.max(0.1, ms / 1000).toFixed(1)} 秒` : '';
   return `<div class="wx-think" data-think="1">
     <div class="wx-think-head">💭 思考${secs}</div>
     <div class="wx-think-body">${esc(msg.think)}</div>
@@ -1610,6 +1611,8 @@ async function respond() {
       // 虚拟时钟的毫秒时间戳：persona.js 用它判断"场景里写的时间"和"现在"对不对得上
       //（用户把人设页的初始环境写死成"晚上…"、之后又把时钟拨到早上，就会打架）
       now: now(),
+      // 要不要让她写"思考"块（全局设置里能关）——关掉的话提示词里连要求都不加
+      showThink: state.config.showThink !== false,
       summary: state.profile.summary,
       herName: herName(),
       persona: personaForPrompt(),
@@ -1633,9 +1636,6 @@ async function respond() {
     // 今天一起做过、但已经掉出上面那段完整记录的事（用户实测："中午带她去开会，
     // 晚上就忘了"）。不需要命中关键词，天然的"当日事件线"。
     todayTimeline(state.messages, now(), { before: _ctxStart }),
-    // 她的内心想法（会折叠成一个小块）。全局设置里能关掉 —— 关掉就**不要求她写**，
-    // 连 prompt 都不加（省 token，也少一层"她在演"的感觉）。
-    state.config.showThink === false ? '' : thoughtBlock(),
     `【记住前面聊过的】（很重要）
 上面给了你最近的完整对话记录。你必须**记得并沿用**这些内容：
 - 他刚说过的名字、地点、事情、情绪，不要当成没听过
@@ -1739,6 +1739,8 @@ async function respond() {
     let parts = replyItems(thoughtCut.clean, Number(state.config.burst) || 2);
     // 从"收到他那句话"到"回复生成完"的真实耗时（毫秒）→ 界面上显示成"思考 1.4 秒"
     const thinkMs = Date.now() - t0;
+    // 记一笔"这一轮她到底写没写思考"：设置页里会显示，好让"没写"和"功能坏了"分得清
+    state.lastThought = { ok: !!innerThought, ms: thinkMs };
 
     // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
     // 而不是让他再问一遍。见 askForWords 的说明。
@@ -1967,6 +1969,19 @@ function syncSettingsUI() {
   if ($('#segShowThink')) {
     const on = state.config.showThink !== false;
     $$('#segShowThink button').forEach((b) => b.classList.toggle('on', (b.dataset.v === '1') === on));
+  }
+  // 诊断：最近一轮她到底写没写思考。
+  // 为什么要显示它（用户反馈"💭 思考 N 秒，我现在还是没有看到这个东西"）：
+  // 思考块是**模型按格式写出来的**，模型不听话就没有 —— 但界面上"没写"和"功能坏了"
+  // 长得一模一样。这一行让他一眼看出是哪一环，也方便他直接把结论告诉我。
+  if ($('#thinkStatus')) {
+    const t = state.lastThought;
+    $('#thinkStatus').textContent = !t
+      ? '还没聊过：跟她说一句话就能看到'
+      : t.ok
+        ? `最近一轮：她写了 ✓（${(t.ms / 1000).toFixed(1)} 秒）`
+        : '最近一轮：她没写 ✗ —— 多半是模型没按格式输出（再聊一句试试；'
+          + '手机本地的小模型经常不遵守这种格式要求）';
   }
   updateDataInfo();
 }
@@ -3587,6 +3602,7 @@ async function speakUp(reason) {
         scene: currentScene(),
         timeText: currentTimeText(),
         now: now(),
+        showThink: state.config.showThink !== false,
         summary: state.profile.summary,
         herName: herName(),
         persona: personaForPrompt(),
@@ -3649,13 +3665,17 @@ ${situation}
       });
     }
 
-    // 主动开口那一轮也要擦掉情绪块（不然她会把 [[情绪]] 说出来）
+    // 主动开口那一轮也要擦掉这几个隐藏块（不然她会把 [[情绪]]、[[思考]] 说出来）。
+    // ⚠️ 思考块一定要在这里也摘掉：现在**每一轮**都要求她写，主动开口那一轮同样会带 ——
+    //    漏摘的话 `[[思考]]…` 会原样出现在聊天气泡里，比"看不到思考块"难看得多。
     const memCut = extractMemory(full);
     applyMemory(memCut.mem);
     const moodCut = parseMoodBlock(memCut.clean);
     if (moodCut.mood) applyMood(moodCut.mood);
+    const thoughtCut = parseThoughtBlock(moodCut.clean);
+    const innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
 
-    let parts = replyItems(moodCut.clean, 2);
+    let parts = replyItems(thoughtCut.clean, 2);
     // 主动开口那一轮同理：只发动作不说话，等于白开口一次
     if (parts.length && parts.every((it) => it.narr)) {
       const words = await askForWords({
@@ -3677,6 +3697,8 @@ ${situation}
       hideTyping();
       const msg = { role: 'assistant', content, ts: now(), mid: !isLast };
       if (narr) msg.narr = true;
+      // 主动开口的内心话也挂上（她主动想起他，心里那句话挺值得看的）
+      if (i === 0 && innerThought) msg.think = innerThought;
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();

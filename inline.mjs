@@ -78,9 +78,9 @@ const APP_REPLACEMENTS = [
   // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/narration\.js['"];?/,
     'const { splitNarration, recentNarrations, narrationVaryBlock } = __narration;'],
-  // 思考：读消息的停顿感 + 她的内心想法（[[思考]] 隐藏块）
+  // 思考：读消息的停顿感 + 隐藏块 [[思考]] 的解析与格式要求
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/thought\.js['"];?/,
-    'const { parseThoughtBlock, thinkPause, thoughtBlock } = __thought;'],
+    'const { parseThoughtBlock, thinkPause, thoughtPrompt } = __thought;'],
   // 终局检测（旁白里写"一起老去/都死了"→ 弹窗问要不要删档）
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/ending\.js['"];?/,
     'const { detectEnding, DREAM_NARRATION, ENDING_DIALOG } = __ending;'],
@@ -125,7 +125,7 @@ const EXPORTS = {
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
   narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock',
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
-  thought: ['parseThoughtBlock', 'thinkPause', 'thoughtBlock'],
+  thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt'],
   ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
@@ -243,9 +243,9 @@ export function inlineScript(dir = '') {
       const __profession = (function () { ${src.profession}
         return { ${pick(EXPORTS.profession)} };
       })();
-      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock) { ${src.persona}
+      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt) { ${src.persona}
         return { ${pick(EXPORTS.persona)} };
-      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock);
+      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt);
       const __api = (function () { ${src.api}
         return { ${pick(EXPORTS.api)} };
       })();
