@@ -97,6 +97,9 @@ export function createFriendUI(deps) {
 
   /** 进入某个好友的聊天页 */
   function openChat(id) {
+    // 一个好友都没有时（"忘记你们的一切"会把好友一起删掉）不能进聊天页，
+    // 否则是对着一个不存在的人说话。回消息列表，那里有"请添加好友"的提示。
+    if (!state.nav.active) { showTab('msgs'); return; }
     if (id && String(id) !== state.nav.active) {
       if (!switchPersona(id)) return;
     }
@@ -166,7 +169,21 @@ export function createFriendUI(deps) {
       parts.push('<div class="wx-group-title">还没说过话</div>');
       parts.push(rest.map((v) => listItemHTML(v)).join(''));
     }
-    if (!list.length) parts.push('<div class="wx-empty">还没有好友。<br>去「好友」加一个。</div>');
+    if (!list.length) {
+      // 一个好友都没有了（"忘记你们的一切"会把好友一起删掉）——
+      // 这里要说清楚下一步做什么，光写"还没有好友"他会愣在那儿
+      parts.push(`<div class="wx-empty">
+        还没有好友。<br>
+        <strong>请添加一个好友</strong>，才能开始聊天。
+      </div>
+      <div class="wx-item add" data-add="new" role="button" tabindex="0">
+        <div class="wx-avatar item blank">＋</div>
+        <div class="wx-item-body">
+          <div class="wx-item-top"><span class="wx-item-name">添加好友</span></div>
+          <div class="wx-item-sub">从预设人格里挑一个，或者自己捏一个</div>
+        </div>
+      </div>`);
+    }
     box.innerHTML = parts.join('');
   }
 
@@ -183,7 +200,8 @@ export function createFriendUI(deps) {
         </div>
       </div>
       <div class="wx-group-title">全部好友（${list.length}）</div>
-      ${list.map((v) => listItemHTML(v, { showUnread: false })).join('')}`;
+      ${list.length ? list.map((v) => listItemHTML(v, { showUnread: false })).join('')
+    : '<div class="wx-empty">还没有好友。<br><strong>请添加一个好友</strong>，就能开始聊了。</div>'}`;
   }
 
   // -------------------------------------------------------------- 我

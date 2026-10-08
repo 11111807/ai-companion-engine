@@ -64,11 +64,12 @@ function emptyNav() {
 /**
  * 把存下来的索引修成一个能用的形状。
  *
- * 三种情况都要兜住：
+ * 四种情况都要兜住：
  *   1. 没有索引（老用户 / 新用户）→ 只有"小雨"
  *   2. 索引坏了（不是对象 / list 不是数组）→ 同上
- *   3. 索引里没有默认好友（被人删了或写坏了）→ 补回去，
- *      因为默认好友的数据在老 key 里，永远存在，不能从列表消失
+ *   3. 索引里没有默认好友，但**不是他删的**（写坏了）→ 补回去
+ *   4. `noDefault: true`（他用"忘记你们的一切"把默认好友删了）→ **不补**，
+ *      列表可以是空的 —— 那时界面要提示"请添加好友"
  */
 export function normalizeNav(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.list)) return emptyNav();
@@ -91,7 +92,11 @@ export function normalizeNav(raw) {
     });
   }
 
-  if (!seen.has(DEFAULT_ID)) list.unshift({ id: DEFAULT_ID, name: '', emoji: '', createdAt: 0 });
+  // 默认好友被"删档"删掉过 → 尊重这个空列表，别再把它塞回来
+  const wiped = raw.noDefault === true;
+  if (!wiped && !seen.has(DEFAULT_ID)) {
+    list.unshift({ id: DEFAULT_ID, name: '', emoji: '', createdAt: 0 });
+  }
 
   // order 里只留真实存在的好友，缺的补到末尾 ——
   // 这样即使用户手动改坏了 order，也不会有人从列表里消失
@@ -100,8 +105,12 @@ export function normalizeNav(raw) {
     .filter((id) => ids.includes(id));
   for (const id of ids) if (!order.includes(id)) order.push(id);
 
-  const active = ids.includes(String(raw.active)) ? String(raw.active) : DEFAULT_ID;
-  return { version: 1, list, active, order };
+  // 一个好友都没有时 active 只能是空串（界面据此显示"请添加好友"）
+  const wanted = String(raw.active || '');
+  const active = ids.includes(wanted) ? wanted : (ids.includes(DEFAULT_ID) ? DEFAULT_ID : (ids[0] || ''));
+  const nav = { version: 1, list, active, order };
+  if (wiped) nav.noDefault = true;
+  return nav;
 }
 
 /** 按 order 排好序的好友列表 */
@@ -164,17 +173,26 @@ export function addPersona(nav, fields = {}) {
 }
 
 /**
- * 删一个好友。**默认好友删不掉** ——
- * 它的数据在老 key 里，删掉列表项会让老用户的东西变成"看不见也删不掉"。
- * 想清空小雨就用「恢复默认」。
+ * 删一个好友。
+ *
+ * ⚠️ **默认好友也能删**（原话："删档后直接删掉好友，如果此时消息页没有对话框，
+ * 好友页没有好友，注明，请添加好友"）—— 走的是"忘记你们的一切"那条路：
+ * 删之前他的数据已经按 key 清掉了，所以这里要做的只是**别把它加回来**，
+ * 打个 `noDefault` 标记（见 normalizeNav）。
+ *
+ * 平时在「好友」页删人是另一回事（那里不给删默认好友，因为有老 key 兜着）。
  */
-export function removePersona(nav, id) {
+export function removePersona(nav, id, { allowDefault = false } = {}) {
   const n = normalizeNav(nav);
-  if (String(id) === DEFAULT_ID) return { nav: n, removed: false };
+  const target = String(id);
+  if (!target) return { nav: n, removed: false };
+  if (target === DEFAULT_ID && !allowDefault) return { nav: n, removed: false };
+
   const before = n.list.length;
-  n.list = n.list.filter((p) => p.id !== String(id));
-  n.order = n.order.filter((x) => x !== String(id));
-  if (n.active === String(id)) n.active = DEFAULT_ID;
+  n.list = n.list.filter((p) => p.id !== target);
+  n.order = n.order.filter((x) => x !== target);
+  if (target === DEFAULT_ID) n.noDefault = true;
+  if (n.active === target) n.active = n.order[0] || '';
   return { nav: n, removed: n.list.length < before };
 }
 

@@ -19,6 +19,8 @@ import * as search from './src/search.js';
 import * as storage from './src/storage.js';
 import * as memoryIO from './src/memory-io.js';
 import * as narration from './src/narration.js';
+import * as thought from './src/thought.js';
+import * as ending from './src/ending.js';
 
 let pass = 0;
 let fail = 0;
@@ -34,7 +36,7 @@ const hasDom = () => typeof document !== 'undefined' || typeof localStorage !== 
 console.log('\n[0] 每个模块都能脱离 app.js 和浏览器单独加载 ...');
 {
   check('这个测试跑在 node 里（没有 document / localStorage）', !hasDom());
-  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration })) {
+  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending })) {
     check(`${name}.js 能单独 import`, !!mod && Object.keys(mod).length > 0,
       `${Object.keys(mod).length} 个导出`);
   }
@@ -350,6 +352,79 @@ console.log('\n[7] narration.js —— 把"最近写过的旁白"捞回去提醒
     /没有画面的空动作/.test(narration.narrationVaryBlock(['顿住', '抬头看钟'])));
   check('没有空动作时不点名',
     !/没有画面的空动作/.test(narration.narrationVaryBlock(['抬头看钟', '把被子拉了拉'])));
+}
+
+// ---------------------------------------------------------------- 8) thought.js
+console.log('\n[8] thought.js —— 读消息的停顿感 + 她的内心想法 ...');
+{
+  // 停顿：难的问题才"想一下"，而且是可解释的（不是随机变慢）
+  check('太短的不停（"在吗""嗯"）', thought.thinkPause('在吗') === 0 && thought.thinkPause('嗯嗯') === 0);
+  check('普通闲聊也不停', thought.thinkPause('今天天气还行') === 0);
+  check('⭐ 要他表态的问题会停一下', thought.thinkPause('你觉得我该不该去啊') > 0,
+    String(thought.thinkPause('你觉得我该不该去啊')));
+  check('⭐ 要翻记忆的话会停一下', thought.thinkPause('你还记得我们上次说的那件事吗') > 0);
+  check('长消息会停更久', thought.thinkPause('x'.repeat(100)) >= 800,
+    String(thought.thinkPause('x'.repeat(100))));
+  check('⭐ 上限压住（用户要求"不要等待时间太长"）',
+    thought.thinkPause('为什么你觉得我该不该去啊，你还记得上次吗？' + 'x'.repeat(200)) <= 1600,
+    String(thought.thinkPause('为什么你觉得我该不该去啊，你还记得上次吗？' + 'x'.repeat(200))));
+  check('是 100ms 的整数倍（节奏好控制）',
+    thought.thinkPause('你觉得我该不该去啊') % 100 === 0);
+  check('空值不炸', thought.thinkPause('') === 0 && thought.thinkPause(null) === 0);
+
+  // 内心想法：隐藏块
+  const one = thought.parseThoughtBlock('[[思考]]他怎么突然问这个…\n\n几点了我看看');
+  check('⭐ [[思考]] 被摘出来', one.thought === '他怎么突然问这个…', one.thought);
+  check('正文里一个标记都不剩', !/\[\[/.test(one.clean) && /几点了我看看/.test(one.clean), one.clean);
+  const two = thought.parseThoughtBlock('[[思考]]其实有点高兴\n\n好呀\n\n[[情绪]]{"joy":20}');
+  check('和其他隐藏块挨着也不会互相吃掉',
+    /其实有点高兴/.test(two.thought) && /好呀/.test(two.clean) && /\[\[情绪\]\]/.test(two.clean),
+    two.clean.slice(0, 30));
+  check('没有思考块时原样返回',
+    thought.parseThoughtBlock('就这样').thought === '' && thought.parseThoughtBlock('就这样').clean === '就这样');
+  check('[[内心]] / [[心声]] 也认',
+    thought.parseThoughtBlock('[[内心]]有点紧张').thought === '有点紧张');
+  check('空值不炸', thought.parseThoughtBlock('').clean === '' && thought.parseThoughtBlock(null).thought === '');
+  check('太长会被截断（别把一块写成小作文）',
+    thought.parseThoughtBlock(`[[思考]]${'啊'.repeat(300)}`).thought.length <= 120);
+
+  const block = thought.thoughtBlock();
+  check('提示词里说明了这是"看不见的心理活动"',
+    /看不见的心理活动/.test(block) && /第一人称/.test(block));
+  check('⭐ 明确和旁白区分开（旁白是动作，这个是心里话）',
+    /它和旁白\*\*不一样\*\*/.test(block));
+  check('给了长度和一五一十的要求（20~50 字）', /20~50 字/.test(block));
+  check('写明不会显示成她的话（会折叠）', /折叠成一个小小的"思考"/.test(block));
+}
+
+// ---------------------------------------------------------------- 9) ending.js
+console.log('\n[9] ending.js —— 旁白里的"终局"要认出来（但别乱认）...');
+{
+  check('⭐ 用户举的例子能认出来',
+    ending.detectEnding('很多年后我们都老了，一起离开了这个世界', { narr: true }) !== '',
+    ending.detectEnding('很多年后我们都老了，一起离开了这个世界', { narr: true }));
+  check('"一起老去"能认', ending.detectEnding('（我们一起老去，白头到老）', { narr: true }) !== '');
+  check('"都死了"能认', ending.detectEnding('（后来我们都死了）', { narr: true }) !== '');
+  check('葬礼 / 墓前能认', ending.detectEnding('（画面转到墓前）', { narr: true }) !== '');
+
+  check('⭐ 台词里说"我要跟你走一辈子"不算（那是表白）',
+    ending.detectEnding('我要跟你走一辈子', { narr: false }) === '');
+  check('⭐ "笑死我了"不算（中文里全是夸张用法）',
+    ending.detectEnding('（笑死我了）', { narr: true }) === ''
+    && ending.detectEnding('（累死了今天）', { narr: true }) === '');
+  check('⭐ "想死你了"不算', ending.detectEnding('（想死你了）', { narr: true }) === '');
+  check('普通旁白不算', ending.detectEnding('（她推门进来，手里拎着两杯奶茶）', { narr: true }) === '');
+  check('空值不炸', ending.detectEnding('', { narr: true }) === '' && ending.detectEnding(null) === '');
+
+  check('圆场那句旁白就是用户写的那句',
+    ending.DREAM_NARRATION === '你们都睡着了，做了一个好梦，白天醒来又是美好的一天',
+    ending.DREAM_NARRATION);
+  check('⭐ 第一轮：是 / 否', ending.ENDING_DIALOG.first.yes === '是' && ending.ENDING_DIALOG.first.no === '否');
+  check('⭐ 第二轮：是 / 我还没想好',
+    ending.ENDING_DIALOG.second.yes === '是' && ending.ENDING_DIALOG.second.no === '我还没想好');
+  check('两轮的问法不一样（第二遍是"再确认一次"）',
+    /是否忘记你们的一切/.test(ending.ENDING_DIALOG.first.title)
+    && /再确认一次/.test(ending.ENDING_DIALOG.second.title));
 }
 
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);process.exit(fail ? 1 : 0);

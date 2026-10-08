@@ -174,12 +174,19 @@ console.log('\n[5] 底部导航 ...');
   check('底部导航有三格', app.$$('.wx-tab').length === 3);
   check('分别是消息 / 好友 / 我',
     app.$$('.wx-tab').map((b) => b.dataset.tab).join(',') === 'msgs,friends,me');
-  check('有聊天记录时直接进聊天页（老行为不变）', !$('#screen-chat').hidden);
+  // ⭐ 这一轮改了：**每次进来都先停在消息列表**（用户要求"退出后台重新进入页面时，
+  //    初始页面为消息页面，不要直接进入对话框"）。以前是"有聊天记录就进聊天页"。
+  check('⭐ 有聊天记录也不再直接进聊天页（先看消息列表）', $('#screen-chat').hidden);
+  check('⭐ 初始页面就是消息页', !$('#screen-msgs').hidden);
+  check('消息列表里有默认好友', app.$$('#msgList .wx-item').length >= 1);
+  check('底部导航可见（能切到好友/我）', !$('#tabbar').hidden);
+
+  // 点进某个好友 → 才进聊天页
+  tap('#msgList .wx-item');
+  check('点消息列表里的人 → 进她的聊天页', !$('#screen-chat').hidden && $('#screen-msgs').hidden);
 
   tap('#btnBack');
   check('点返回 → 回消息列表', !$('#screen-msgs').hidden && $('#screen-chat').hidden);
-  check('消息列表里有默认好友', app.$$('#msgList .wx-item').length >= 1);
-  check('底部导航变可见', !$('#tabbar').hidden);
 
   tap('.wx-tab[data-tab="friends"]');
   check('点「好友」→ 切到好友页', !$('#screen-friends').hidden && $('#screen-msgs').hidden);

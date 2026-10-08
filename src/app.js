@@ -69,6 +69,8 @@ import {
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
+import { parseThoughtBlock, thinkPause, thoughtBlock } from './thought.js';
+import { detectEnding, DREAM_NARRATION, ENDING_DIALOG } from './ending.js';
 import { APK_URL } from './config.js';
 
 // APK 环境才有 native.js（网页版部署包里没有这个文件），
@@ -235,6 +237,7 @@ const state = {
     burst: 3,
     temperature: 1.0,
     thinking: false,   // 深度思考：默认关（陪聊要快），开了她会先想清楚再回
+    showThink: true,   // 显示她的"内心想法"（折叠小块）；关掉就连提示词都不加
     autoSpeak: true,   // 你不出声时，她会主动找你说两句
     clockOffset: 0,    // 内置时钟偏移（毫秒）：可以在「+」里把时间往前拨
     userName: '',
@@ -271,6 +274,8 @@ const state = {
   generating: false,
   abort: null,
   typingNode: null,
+  // 终局弹窗里他选了"我还没想好" → 下一条要补一句"你们都睡着了"的旁白（见 ending.js）
+  pendingDream: false,
   // 多好友索引：{ list, order, active }。当前好友的 config/messages/profile
   // 就在上面这三个字段里 —— loadPersona() 负责按 active 换掉它们。
   nav: null,
@@ -381,6 +386,16 @@ const mePersona = () => findPersona(state.nav, state.nav.active) || findPersona(
  * 界面代码长期持有这三个对象的引用，一换对象它拿到的就还是旧的那个。
  */
 function loadPersona(id) {
+  // ⚠️ 一个好友都没有时（他把最后一个删了）id 会是空串 ——
+  //    而 keysFor('') 会退回**默认好友的老 key**，那就把刚删掉的东西又读回来了。
+  //    所以这里显式短路：清空成"全新用户"的样子，不碰任何存储。
+  if (!id || !findPersona(state.nav, id)) {
+    state.messages = [];
+    for (const key of Object.keys(state.profile)) delete state.profile[key];
+    fixProfileShape(state.profile, state.messages);
+    return;
+  }
+
   const k = keysFor(id);
   Object.assign(state.config, readJSON(k.config, {}));
   const chat = readJSON(k.chat, []);
@@ -863,10 +878,26 @@ function messageHTML(msg, prev, idx) {
     </div>`;
   }
   return `${maybeTimeDivider(msg.ts, prev?.ts)}
-    <div class="${cls}"${at}>
+    ${thinkHTML(msg, out)}
+    <div class="${cls}${thinkHTML(msg, out) ? ' has-think' : ''}"${at}>
       ${avatarHTML(out ? 'me' : 'her')}
       <div class="wx-bubble${emojiOnly ? ' emoji-only' : ''}">${esc(msg.content)}</div>
     </div>`;
+}
+
+/**
+ * 她的"内心想法"折叠块（用户要求："把她的内心想法展示出来，用别的气泡做区分，
+ * 可以下拉展开的"）。默认收起，只露一行灰字 —— 不抢台词的视觉重心。
+ *
+ * 为什么挂在气泡**上方**：先想后说，读起来是"她心里嘀咕了一句，然后才开口"。
+ */
+function thinkHTML(msg, out) {
+  if (!msg?.think || out) return '';
+  if (state.config.showThink === false) return '';   // 设置里关掉了就整块不画
+  return `<div class="wx-think" data-think="1">
+    <div class="wx-think-head">💭 她的内心</div>
+    <div class="wx-think-body">${esc(msg.think)}</div>
+  </div>`;
 }
 
 // renderChat 的增量渲染状态。
@@ -882,7 +913,8 @@ function messageHTML(msg, prev, idx) {
 let _drawn = 0;      // 已经画进 DOM 的消息条数
 let _sigs = [];      // 每条画进去时的签名（用来判断前缀有没有被改过）
 
-const msgSig = (m) => `${m.role}|${m.narr ? 'n' : ''}|${m.ts}|${m.content}`;
+// 签名里要带上 think：不然"只补了内心想法"这种变化会被当成没变，增量渲染就不更新它
+const msgSig = (m) => `${m.role}|${m.narr ? 'n' : ''}|${m.ts}|${m.think || ''}|${m.content}`;
 
 function renderChat() {
   const box = $('#messages');
@@ -1080,11 +1112,28 @@ async function send() {
   // 他出现了，重置"主动开口"的次数
   state.idleSpoken = 0;
 
+  // ⚠️ 终局检测（见 src/ending.js）：他在**旁白**里写"我们一起老去、都死了"这类话时，
+  //    先停下来问一句 —— 要么删档重来，要么把这段剧情解释成一场梦。
+  //    不闻不问最糟：她会带着"我们都已经死了"继续跟他聊今天晚饭吃什么。
+  if (narrText) {
+    const hit = detectEnding(narrText, { narr: true });
+    if (hit) {
+      const wiped = await runEndingFlow(hit);
+      if (wiped) return;      // 删档了：这条旁白就不发了（连"他们"都不存在了）
+    }
+  }
+
   const t = now();
   // 旁白在前、消息在后：读起来就是"（动作）台词"，
   // 而且让模型看到的是同一个顺序。
   if (narrText) pushUserMessage({ role: 'user', content: narrText, ts: t, narr: true });
   if (text) pushUserMessage({ role: 'user', content: text, ts: t + (narrText ? 1 : 0) });
+
+  // 他选了"我还没想好" → 替他把这段剧情圆回来（"你们都睡着了，做了一个好梦"）
+  if (state.pendingDream) {
+    state.pendingDream = false;
+    pushUserMessage({ role: 'assistant', content: DREAM_NARRATION, ts: t + 1, narr: true });
+  }
 
   if (text) {
     // 好感度跟着他这句话的冷暖动一点点（见 affection.js 的 drift）
@@ -1107,6 +1156,129 @@ function pushUserMessage(msg) {
   appendRow(msg);        // 它自己会更新增量渲染的记账
   scrollToLatest(true);
   saveChat();
+}
+
+// ---------------------------------------------------------------- 终局（删档确认）
+
+/**
+ * 二次确认弹窗。返回 true = 他点了"是"。
+ *
+ * 为什么不用系统 confirm()：按钮配色本身就是内容 ——
+ * "是"必须是灰的（危险动作不该长得像推荐），"否"必须是绿的。
+ * 而且这里要连着问两遍，系统弹窗在手机上也太重。
+ */
+function openConfirm({ title, body, yes = '是', no = '否' }) {
+  return new Promise((resolve) => {
+    const mask = $('#confirmMask');
+    if (!mask) { resolve(false); return; }
+    $('#confirmTitle').textContent = title;
+    $('#confirmBody').textContent = body;
+    const btnYes = $('#confirmYes');
+    const btnNo = $('#confirmNo');
+    btnYes.textContent = yes;
+    btnNo.textContent = no;
+
+    const done = (val) => {
+      btnYes.removeEventListener('click', onYes);
+      btnNo.removeEventListener('click', onNo);
+      mask.removeEventListener('click', onMask);
+      mask.hidden = true;
+      resolve(val);
+    };
+    const onYes = () => done(true);
+    const onNo = () => done(false);
+    const onMask = (e) => { if (e.target === mask) done(false); };   // 点空白 = 取消
+    btnYes.addEventListener('click', onYes);
+    btnNo.addEventListener('click', onNo);
+    mask.addEventListener('click', onMask);
+    mask.hidden = false;
+  });
+}
+
+/**
+ * 终局流程：问两遍，都点头才删档。
+ * 任何一步选"否 / 我还没想好" → 不删档，并记下"要把这段剧情圆成一场梦"。
+ *
+ * @param {string} hit 命中的那句（只用于提示，不影响流程）
+ * @returns {Promise<boolean>} 真的删了才返回 true
+ */
+async function runEndingFlow(hit) {
+  const first = await openConfirm({
+    ...ENDING_DIALOG.first,
+    body: `${ENDING_DIALOG.first.body}\n\n（你写的是"${String(hit).slice(0, 16)}"）`,
+  });
+  if (!first) {
+    state.pendingDream = true;
+    toast('那就当它是一场梦', 2000);
+    return false;
+  }
+  const second = await openConfirm(ENDING_DIALOG.second);
+  if (!second) {
+    state.pendingDream = true;
+    toast('好，那就不动它', 2000);
+    return false;
+  }
+  wipeEverything();
+  showTab('msgs');     // 好友删了 → 回到消息列表（那里会提示"请添加好友"）
+  return true;
+}
+
+/**
+ * 忘记你们的一切 —— 按用户的要求，**连这个好友一起删掉**：
+ * 「删档后直接删掉好友，如果此时消息页没有对话框，好友页没有好友，注明，请添加好友」。
+ *
+ * 所以是三步：
+ *   1. 把这个好友的三个存档 key 从 localStorage 里删掉（真删，不是留着）
+ *   2. 从好友索引里摘掉（默认好友也能删，打 noDefault 标记，见 personas.js）
+ *   3. 还有别人 → 切过去停在消息列表；一个都没有 → 清空内存 + 显示"请添加好友"
+ */
+function wipeEverything() {
+  const id = state.nav.active || DEFAULT_ID;
+
+  // 1) 真删存档。默认好友用的是老 key，其他好友是各自的命名空间 —— 都由 keysFor 给。
+  const keys = keysFor(id);
+  for (const k of [keys.config, keys.chat, keys.profile]) {
+    try { localStorage.removeItem(k); } catch {}
+  }
+
+  // 2) 从索引里摘掉（allowDefault：这条路径就是要把默认好友也删掉）
+  const r = removePersona(state.nav, id, { allowDefault: true });
+  state.nav = r.nav;
+
+  resetRecallIndex();
+  resetChatRender();
+
+  if (state.nav.active) {
+    // 还有别的好友 → 切过去，停在消息列表
+    loadPersona(state.nav.active);
+    savePersonaIndex();
+    renderHerIdentity();
+    renderAffection();
+    renderClock();
+    renderChat();
+    renderMoodStrip();
+    renderNav();
+    updateDataInfo();
+    toast('已经把她忘了。', 2400);
+    return;
+  }
+
+  // 3) 一个好友都没有了：把内存清成"全新用户"，界面显示"请添加好友"
+  state.messages = [];
+  for (const key of Object.keys(state.profile)) delete state.profile[key];
+  fixProfileShape(state.profile, []);
+  for (const key of ['herName', 'herEmoji', 'herTraits', 'herTraitNote', 'herRelation',
+    'herBirthday', 'herAge', 'herJob', 'userJob', 'userBio', 'herGender']) {
+    delete state.config[key];
+  }
+  state.config.personaDone = false;
+  state.config.userName = '';
+  savePersonaIndex();
+  renderChat();
+  renderMoodStrip();
+  renderNav();
+  updateDataInfo();
+  toast('已经忘了。想继续的话，先添加一个好友。', 3200);
 }
 
 // ---------------------------------------------------------------- 关系变了？
@@ -1375,9 +1547,9 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
         onDelta(piece) { out += piece; },
       });
     }
-    // 她可能又顺手带上隐藏块（记忆 / 情绪）→ 擦掉，这里只取台词
-    const clean = parseMoodBlock(extractMemory(out).clean).clean;
-    return replyItems(clean, 1).filter((it) => !it.narr).map((it) => it.content);
+    // 她可能又顺手带上隐藏块（记忆 / 情绪 / 思考）→ 擦掉，这里只取台词
+    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
+    return replyItems(cut.clean, 1).filter((it) => !it.narr).map((it) => it.content);
   } catch {
     return [];
   }
@@ -1436,6 +1608,9 @@ async function respond() {
     // 今天一起做过、但已经掉出上面那段完整记录的事（用户实测："中午带她去开会，
     // 晚上就忘了"）。不需要命中关键词，天然的"当日事件线"。
     todayTimeline(state.messages, now(), { before: _ctxStart }),
+    // 她的内心想法（会折叠成一个小块）。全局设置里能关掉 —— 关掉就**不要求她写**，
+    // 连 prompt 都不加（省 token，也少一层"她在演"的感觉）。
+    state.config.showThink === false ? '' : thoughtBlock(),
     `【记住前面聊过的】（很重要）
 上面给了你最近的完整对话记录。你必须**记得并沿用**这些内容：
 - 他刚说过的名字、地点、事情、情绪，不要当成没听过
@@ -1483,6 +1658,15 @@ async function respond() {
   try {
     let full = '';
 
+    // 「难以理解的问题多想一两秒」——真人读到你那句话会先愣一下再回。
+    // 停顿按他的消息算（长度 / 是不是要判断 / 要不要翻记忆），上限 1.6 秒：
+    // 是为了像人，不是为了让人等。见 thought.js 的 thinkPause。
+    const pause = thinkPause(query);
+    if (pause) {
+      showTyping();
+      await sleep(pause);
+    }
+
     if (getProvider(state.config.provider).id === 'native-local') {
       // 手机本地推理：不用网络、不花 token
       full = await nativeStreamChat({
@@ -1513,15 +1697,18 @@ async function respond() {
       });
     }
 
-    // 她回复末尾可能带两个隐藏块：记忆 和 情绪（顺序无所谓，都要擦干净）
+    // 她回复末尾可能带隐藏块：记忆 / 情绪 / 思考（顺序无所谓，都要擦干净）
     const memCut = extractMemory(full);
     applyMemory(memCut.mem);
     const moodCut = parseMoodBlock(memCut.clean);
+    // 她的内心想法（[[思考]]）：摘出来挂在**第一条**消息上，界面上折叠成一个小块
+    const thoughtCut = parseThoughtBlock(moodCut.clean);
+    const innerThought = state.config.showThink === false ? '' : thoughtCut.thought;
     // 模型不配合时（没带情绪块）用他刚说的那句话本地兜底推一个
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')?.content || '';
     applyMood(moodCut.mood || guessMood(lastUser));
 
-    let parts = replyItems(moodCut.clean, Number(state.config.burst) || 2);
+    let parts = replyItems(thoughtCut.clean, Number(state.config.burst) || 2);
 
     // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
     // 而不是让他再问一遍。见 askForWords 的说明。
@@ -1572,6 +1759,8 @@ async function respond() {
       };
       // 旁白单独存一条（narr: true）→ 界面把它画成左边那个灰色虚线小框
       if (narr) msg.narr = true;
+      // 内心想法挂在**第一条**上（一轮只写一块），界面上折叠在她那句话上方
+      if (i === 0 && innerThought) msg.think = innerThought;
       state.messages.push(msg);
       appendRow(msg);
       scrollToLatest();
@@ -1739,6 +1928,12 @@ function syncSettingsUI() {
       b.classList.toggle('on', Math.abs(Number(b.dataset.v) - Number(state.config[key])) < 0.01));
   }
   if ($('#setupBanner')) $('#setupBanner').hidden = !needsSetup();
+
+  // 全局设置里那条布尔开关：显示她的"内心想法"
+  if ($('#segShowThink')) {
+    const on = state.config.showThink !== false;
+    $$('#segShowThink button').forEach((b) => b.classList.toggle('on', (b.dataset.v === '1') === on));
+  }
   updateDataInfo();
 }
 
@@ -2494,6 +2689,13 @@ function renderPersonaChips() {
  * @param {object} [opts]
  * @param {boolean} [opts.fromSettings] 从设置页进来的（那就给个返回键）
  */
+/** 人选页里那句"再补一句你自己的"要说清是**谁**的性格（她/他跟着性别走） */
+function syncTraitNoteLabel() {
+  const el = $('#perTraitNoteLabel');
+  if (!el) return;
+  el.textContent = `再补一句你自己的（${isMale() ? '他' : '她'}的性格）`;
+}
+
 function openPersona({ fromSettings = false, asNew = false } = {}) {
   closePanels();
   closeMenu();
@@ -2503,6 +2705,7 @@ function openPersona({ fromSettings = false, asNew = false } = {}) {
   perAvatar = c.herEmoji || CHARACTER.emoji;
   $('#perAvatarPreview').textContent = perAvatar;
   setSegOn('#segGender', isMale() ? 'm' : 'f');
+  syncTraitNoteLabel();
   $('#perAge').value = c.herAge || '';
   $('#perJob').value = c.herJob || '';
   $('#perUserJob').value = c.userJob || '';
@@ -3089,6 +3292,9 @@ function renderAvatarPanel() {
   const op = avatarOps(avatarTarget);
   const title = $('#avatarPanelTitle');
   if (title) title.textContent = op.title;
+  // 导航栏标题也跟着走（左上角返回键旁边写清楚在改谁的头像）
+  const nav = $('#avatarNavTitle');
+  if (nav) nav.textContent = avatarTarget === 'me' ? '我的头像' : '她的头像';
 
   const list = $('#avatarEmojiList');
   if (!list) return;
@@ -3323,6 +3529,8 @@ function onVisibilityChange() {
  */
 async function speakUp(reason) {
   if (state.generating) return false;
+  // 一个好友都没有时没人可开口（"忘记你们的一切"会把好友一起删掉）
+  if (!state.nav.active) return false;
   if (!hasKey() && !getProvider(state.config.provider)?.local) return false;
 
   setGenerating(true);
@@ -3597,6 +3805,17 @@ function bindComposer() {
     $('#btnScrollBottom').hidden = nearBottom(160);
   });
   $('#btnScrollBottom').addEventListener('click', () => scrollToLatest(true));
+
+  // 她的"内心想法"：点那一行展开 / 收起。
+  // 用事件委托（气泡是动态插入的，一个个绑会漏）。
+  $('#messages').addEventListener('click', (e) => {
+    const box = e.target.closest('.wx-think');
+    if (!box) return;
+    const head = e.target.closest('.wx-think-head');
+    if (!head) return;
+    box.classList.toggle('open');
+    scrollToLatest();
+  });
 }
 
 /** 「+」面板：好感度手动调、关系快改、关系提示条、内置时钟、清空/设置入口 */
@@ -3690,7 +3909,11 @@ function bindPersonaForm() {
 
   // 性别
   onSeg('#segGender', (v) => {
+    // 立刻写进 config：label（她的性格/他的性格）和下面的预览都读它，
+    // 等到 applyPersona 才写的话，点了按钮界面不会马上变
+    state.config.herGender = v === 'm' ? 'm' : 'f';
     setSegOn('#segGender', v);
+    syncTraitNoteLabel();   // "再补一句你自己的（她的性格）"要跟着变她/他
     renderAffection();   // 「她/他此刻对你的感觉」这句话要跟着变
   });
 
@@ -3878,6 +4101,8 @@ function bindNamesAndAvatars() {
     e.target.value = '';   // 允许重复选同一个文件
   });
   $('#btnResetAvatar')?.addEventListener('click', resetAvatar);
+  // 返回键（用户反馈"头像上传界面没有返回按钮"）
+  $('#btnCloseAvatar')?.addEventListener('click', closeAvatarPanel);
   // 面板是覆盖层，得能关掉：点空白处 / 选完自动关
   $('#avatarPanel')?.addEventListener('click', (e) => {
     if (e.target === $('#avatarPanel')) closeAvatarPanel();
@@ -3903,6 +4128,19 @@ function bindReplyStyle() {
       buzz(8);
     });
   }
+
+  // 全局设置里那条：显示她的"内心想法"（布尔，不走上面那套 Number 转换）
+  onSeg('#segShowThink', (v) => {
+    state.config.showThink = v === '1';
+    saveConfig();
+    syncSettingsUI();
+    // 关掉之后已经画在屏幕上的思考块也要消失 —— 增量渲染不会重画旧的，
+    // 所以这里得把记账清掉，老老实实重画一遍
+    resetChatRender();
+    renderChat();
+    toast(state.config.showThink ? '她会把心里话说给你看' : '她已经不写心里话了', 2000);
+    buzz(8);
+  });
 }
 
 function bindEvents() {
@@ -3968,7 +4206,10 @@ function init() {
   // 全新用户：没人设、也没聊天记录。
   // 这种情况**先别发开场白** —— 开场白是按场景和时间生成的，
   // 而人设页里能改名字、改初始环境，发早了就等于按旧设定说了一遍。
-  const freshUser = !state.messages.length && !state.config.personaDone;
+  // 「忘记你们的一切」会把好友一起删掉 → 可能一个好友都没有。
+  // 那种情况下没有人设页可填、也没有开场白可说，只能提示他去加一个好友。
+  const hasFriend = !!state.nav.active;
+  const freshUser = hasFriend && !state.messages.length && !state.config.personaDone;
 
   ensureScene();          // 会话开始定一次场景，之后不再乱跳
   buildEmojiPanel();
@@ -3978,8 +4219,8 @@ function init() {
   // 以前是"上次你说{他最后一句话}，后来呢"——遇到"睡吧""好的"这种结束语
   // 就会变成"上次你说睡吧，后来呢"，非常生硬。
   // 没配 Key / 调用失败才退回保守的兜底开场白（而且兜底也不套用他的话）。
-  const willSpeak = !freshUser && shouldSpeakOnReturn();
-  if (!freshUser && !willSpeak) bootGreeting();   // 只有全新用户才需要开场白
+  const willSpeak = hasFriend && !freshUser && shouldSpeakOnReturn();
+  if (hasFriend && !freshUser && !willSpeak) bootGreeting();   // 只有全新用户才需要开场白
   renderChat();
   initFriendUI();       // 好友界面要用到上面那些函数，所以在这儿初始化
   bindEvents();
@@ -3990,14 +4231,13 @@ function init() {
   closePanels();
   syncSettingsUI();
 
-  // 落到哪个页面：
-  //   有聊天记录 → 直接进聊天页（老用户/老测试的默认行为，别改）
-  //   全新用户   → 也进聊天页，人设页会盖在上面
-  //   加了好友但还没跟这个人说过话 → 停在消息列表，让底部导航露出来
+  // 落到哪个页面（用户要求：**每次进来都先停在消息列表**）：
+  //   以前是"有聊天记录就直接进她的对话框"，但那样一打开手机就掉进某个人的聊天里，
+  //   想找别人还得先退出来。现在一律先看消息列表（谁的未读、最后一句是什么一目了然），
+  //   想聊自己点进去 —— 这也更像微信。
+  //   全新用户：人设页盖在最上面（openPersona 在上面几行），填完关掉就露出消息列表。
   renderNav();
-  const hadHistory = state.messages.length > 0;
-  if (hadHistory || freshUser) openChat();
-  else showTab('msgs');
+  showTab('msgs');
   renderMoodStrip();
 
   // 他打开聊天页之后要是一直不说话，隔几分钟让她主动开口
@@ -4018,7 +4258,8 @@ function init() {
   $('#navName').textContent = herName();
   renderHerIdentity();
 
-  if (needsSetup()) {
+  // 一个好友都没有时先别弹设置页 —— 那时候该做的是去加一个好友
+  if (hasFriend && needsSetup()) {
     setTimeout(() => {
       appendSys('还没有填 API Key，点右上角 ··· → 设置 填一下就能聊了');
       openSettings();

@@ -255,6 +255,116 @@ body { background: var(--wx-bg); }
 .wx-row.narr.out .wx-bubble.narr { border-color: #cfe6d4; }
 .wx-row.narr.in .wx-bubble.narr { border-color: #e2d4d8; }
 
+/* ---------------- 确认弹窗（两段式） ----------------
+ *
+ * 用在"他在旁白里给这段关系画了句号"的时候。
+ * 按钮配色是用户定的：**"是"用灰色、"否"用绿色** ——
+ * 危险的那个不能长得像推荐选项，绿色永远是"别删"。
+ */
+#confirmMask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;                 /* 盖住所有面板，但低于 toast */
+  background: rgba(0, 0, 0, .35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+#confirmMask[hidden] { display: none; }
+.wx-confirm {
+  width: 100%;
+  max-width: 320px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px 18px 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+}
+.wx-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--wx-text);
+  margin-bottom: 8px;
+}
+.wx-confirm-body {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #7a7a7a;
+  white-space: pre-wrap;
+  margin-bottom: 16px;
+}
+.wx-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wx-confirm-actions button {
+  height: 40px;
+  border-radius: 8px;
+  font-size: 14.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+/* 「是」= 灰：危险动作不能显得像推荐 */
+.wx-confirm-yes {
+  border: 1px solid #d8d8d8;
+  background: #f2f2f2;
+  color: #8a8a8a;
+}
+.wx-confirm-yes:active { background: #e8e8e8; }
+/* 「否 / 我还没想好」= 绿：留在这段关系里才是默认选项。
+   ⚠️ 这里写字面值而不用 var(--wx-green)：jsdom（测试环境）不解析 CSS 变量，
+   声明会被判成无效、回退到 transparent —— 真机没事，但测试会假红。 */
+.wx-confirm-no {
+  border: 1px solid #07c160;
+  background: #07c160;
+  color: #fff;
+}
+.wx-confirm-no:active { filter: brightness(.95); }
+
+/* ---------------- 她的"思考"折叠块 ----------------
+ *
+ * 用户要求："把她的内心想法展示出来，用别的气泡做区分，可以下拉展开的"。
+ * 收起时只有一行灰字（像截图那样），点一下展开 —— 不抢台词的视觉重心。
+ */
+.wx-think {
+  max-width: 76%;
+  margin: 0 0 4px 46px;         /* 和她那侧的气泡对齐（让开头像"她这边的内容"） */
+  border: 1px solid #ececec;
+  border-radius: 8px;
+  background: #fafafa;
+  overflow: hidden;
+}
+.wx-think-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: #9a9a9a;
+  cursor: pointer;
+  user-select: none;
+}
+.wx-think-head::after {
+  content: '▸';
+  margin-left: auto;
+  font-size: 10px;
+  transition: transform .18s;
+}
+.wx-think.open .wx-think-head::after { transform: rotate(90deg); }
+.wx-think-body {
+  display: none;
+  padding: 2px 10px 9px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #8a8a8a;
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px dashed #e8e8e8;
+}
+.wx-think.open .wx-think-body { display: block; }
+
 /* ---------------- 头像选择面板 ----------------
  *
  * 它是**顶层覆盖面板**（不在任何一页里面）：放在某一页里面的话，

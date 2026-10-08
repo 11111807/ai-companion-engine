@@ -561,7 +561,7 @@
         <div class="wx-chips" id="chipsTraits"></div>
       </div>
       <div class="wx-cell">
-        <label for="perTraitNote">再补一句你自己的</label>
+        <label for="perTraitNote" id="perTraitNoteLabel">再补一句你自己的（她的性格）</label>
         <input id="perTraitNote" type="text" maxlength="40" placeholder="嘴上凶，其实特别怕他难过" />
       </div>
       <div class="wx-cell-note">
@@ -669,6 +669,21 @@
     <div class="wx-settings-tip">
       把本页「添加到主屏幕」，就能像 App 一样打开。<br />
       页面本身离线也能打开，聊天需要联网。
+    </div>
+
+    <div class="wx-group-title">聊天</div>
+    <div class="wx-group">
+      <div class="wx-cell between">
+        <span class="wx-cell-label">显示她的"内心想法"</span>
+        <div class="wx-seg" id="segShowThink">
+          <button type="button" data-v="1">显示</button>
+          <button type="button" data-v="0">不显示</button>
+        </div>
+      </div>
+      <div class="wx-cell-note">
+        打开后，她每轮会先写一句心里话 —— 界面上折叠成一个小块（点一下展开）。<br />
+        台词是"她想让你听到的"，内心想法是"她没说出口的那一层"。关掉的话连写都不写。
+      </div>
     </div>
   </div>
 </section>
@@ -788,6 +803,18 @@
      它的 computed display 也是 none，点了"更换"看着像没反应。
      样式上它靠 .show 控制，见 src/styles.css 的 #avatarPanel。 -->
 <section class="wx-settings overlay" id="avatarPanel" hidden>
+  <!-- ⚠️ 这个面板以前没有返回键（用户反馈"头像上传界面没有返回按钮"）——
+       它是覆盖在聊天页/资料页上的整屏面板，没有返回键就只能瞎点别处，
+       所以补一个，和别的 overlay 一致。 -->
+  <header class="wx-navbar light">
+    <button class="wx-back" id="btnCloseAvatar" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div class="wx-navbar-title"><strong id="avatarNavTitle">头像</strong></div>
+    <div style="width:60px"></div>
+  </header>
   <div class="wx-settings-body">
     <div class="wx-group-title" id="avatarPanelTitle">给她选一个头像</div>
     <div class="wx-group">
@@ -804,6 +831,21 @@
     </div>
   </div>
 </section>
+
+<!-- ==================== 确认弹窗（两段式） ====================
+     用在"他在旁白里给这段关系画了句号"的时候（见 src/ending.js）。
+     按钮配色是用户定的：**"是"用灰色、"否"用绿色** ——
+     危险的那个不能长得像推荐选项，所以绿色的永远是"别删"。 -->
+<div class="wx-mask" id="confirmMask" hidden>
+  <div class="wx-confirm" id="confirmBox" role="dialog" aria-modal="true">
+    <div class="wx-confirm-title" id="confirmTitle"></div>
+    <div class="wx-confirm-body" id="confirmBody"></div>
+    <div class="wx-confirm-actions">
+      <button class="wx-confirm-yes" id="confirmYes">是</button>
+      <button class="wx-confirm-no" id="confirmNo">否</button>
+    </div>
+  </div>
+</div>
 
 <!-- ==================== 底部操作菜单 ==================== -->
 <div class="wx-mask" id="mask">

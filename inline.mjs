@@ -78,6 +78,12 @@ const APP_REPLACEMENTS = [
   // 旁白拆分（她的（）→ 单独的气泡）。零依赖的纯函数。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/narration\.js['"];?/,
     'const { splitNarration, recentNarrations, narrationVaryBlock } = __narration;'],
+  // 思考：读消息的停顿感 + 她的内心想法（[[思考]] 隐藏块）
+  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/thought\.js['"];?/,
+    'const { parseThoughtBlock, thinkPause, thoughtBlock } = __thought;'],
+  // 终局检测（旁白里写"一起老去/都死了"→ 弹窗问要不要删档）
+  [/import\s*\{[^}]*\}\s*from\s*['"]\.\/ending\.js['"];?/,
+    'const { detectEnding, DREAM_NARRATION, ENDING_DIALOG } = __ending;'],
   // config.js 只是一行地址常量。内联环境里给它一个空地址，
   // 效果就是"这个部署没配安装包"——和开源版的真实情况一致。
   [/import\s*\{[^}]*\}\s*from\s*['"]\.\/config\.js['"];?/,
@@ -119,6 +125,8 @@ const EXPORTS = {
   format: ['esc', 'isEmojiOnly', 'timeText', 'gapText'],
   narration: ['splitNarration', 'recentNarrations', 'narrationVaryBlock',
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
+  thought: ['parseThoughtBlock', 'thinkPause', 'thoughtBlock'],
+  ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
   storage: ['CFG_KEY', 'CHAT_KEY', 'PROFILE_KEY', 'QUOTA_BYTES', 'readJSON', 'writeJSON', 'fillDefaults',
     'fixConfigShape', 'fixProfileShape', 'sanitizeAffection', 'storageUsed', 'historyBytes',
@@ -151,6 +159,8 @@ export function inlineScript(dir = '') {
     emotion: inlinable(read('src/emotion.js')),
     format: inlinable(read('src/format.js')),
     narration: inlinable(read('src/narration.js')),
+    thought: inlinable(read('src/thought.js')),
+    ending: inlinable(read('src/ending.js')),
     search: inlinable(read('src/search.js')),
     affection: inlinable(read('src/affection.js')),
     relationViews: inlinable(read('src/relation-views.js')),
@@ -193,6 +203,12 @@ export function inlineScript(dir = '') {
       })();
       const __narration = (function () { ${src.narration}
         return { ${pick(EXPORTS.narration)} };
+      })();
+      const __thought = (function () { ${src.thought}
+        return { ${pick(EXPORTS.thought)} };
+      })();
+      const __ending = (function () { ${src.ending}
+        return { ${pick(EXPORTS.ending)} };
       })();
       const __search = (function () { ${src.search}
         return { ${pick(EXPORTS.search)} };

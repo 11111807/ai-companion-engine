@@ -32,6 +32,7 @@ const FILES = [
   'test-recall.mjs',
   'test-habits.mjs',
   'test-curve.mjs',
+  'test-ui.mjs',
 ];
 
 // 写死清单的同时校验一遍，防止以后新增了测试文件却忘了加进来
