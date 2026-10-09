@@ -62,8 +62,16 @@ export function thinkPause(text, { max = 1600 } = {}) {
 
 // ---------------------------------------------------------------- 内心想法
 
-/** 她在回复里用来带"内心想法"的隐藏块（和 [[记忆]] / [[情绪]] 一个套路） */
-const THOUGHT_HEAD = /\[\[\s*(?:思考|内心|心声)\s*\]\]/;
+/**
+ * 她在回复里用来带"内心想法"的隐藏块（和 [[记忆]] / [[情绪]] 一个套路）。
+ *
+ * ⚠️ 两个容错，都是实测踩出来的：
+ *   1. **必须在行首**（行首或换行之后）。不加这个限制的话，台词里偶然出现的
+ *      `[思考]` 也会被当成块头，把后面的正文全吃掉。
+ *   2. **单括号也认**：模型偶尔只写一个 `[思考]`，不认的话这一块会原样留在
+ *      台词里（虽然 stripLabel 能剥掉标签，但那句话就变成台词了）。
+ */
+const THOUGHT_HEAD = /(?:^|\n)[ \t]*\[\[?[ \t]*(?:思考|内心|心声)[ \t]*\]\]?/;
 
 /**
  * 从她的回复里摘出内心想法，返回干净正文 + 想法本身。
@@ -73,6 +81,17 @@ const THOUGHT_HEAD = /\[\[\s*(?:思考|内心|心声)\s*\]\]/;
  *    结果是内心话把后面的台词全吞了。踩过，所以改成显式找结束位置：
  *    空行 / 下一个 `[[` / 字符串末尾，谁先到算谁。
  *
+ * ⚠️⚠️ **没有空行时必须退一步只取一行**（用户实测："对话内容跑到思考框里去了"）：
+ *    提示词里写的是"在你要说的话最前面，另起一行写一块"，模型经常就**只用一个换行**
+ *    分隔内心和台词：
+ *      `[[思考]]他怎么突然问这个…\n在忙呢，刚看到`
+ *    这时如果按"到末尾"算，**整段台词都会被当成内心吞掉** —— 思考框里出现对话内容，
+ *    而台词变成空的（还会触发"只发旁白"之类的兜底）。
+ *    所以没有空行时，只认**第一行有内容的行**是内心，其余留给台词。
+ *
+ *    代价：如果她内心写了两行、又没用空行收尾，第二行会被当成台词说出来。
+ *    这个没法两全（模型没给分隔符），但"少说错一句"远好过"整段台词消失"。
+ *
  * @param {string} text
  * @returns {{clean: string, thought: string}}
  */
@@ -81,12 +100,23 @@ export function parseThoughtBlock(text) {
   const m = src.match(THOUGHT_HEAD);
   if (!m) return { clean: src, thought: '' };
 
-  const tail = src.slice(m.index + m[0].length);
-  const stops = [tail.search(/\n\s*\n/), tail.indexOf('[[')].filter((i) => i >= 0);
-  const end = stops.length ? Math.min(...stops) : tail.length;
+  const body = src.slice(m.index + m[0].length);
+  const blank = body.search(/\n\s*\n/);
+  const stops = [blank, body.indexOf('[[')].filter((i) => i >= 0);
+  let end = stops.length ? Math.min(...stops) : body.length;
+
+  // 没有空行 → 只取第一行有内容的行（见上面那段说明）
+  if (blank < 0) {
+    const lines = body.split('\n');
+    let used = 0;
+    for (let i = 0; i < lines.length; i++) {
+      used += lines[i].length + (i ? 1 : 0);
+      if (lines[i].trim()) { end = used; break; }
+    }
+  }
 
   // 一块内心话不该是篇小作文：多写了几行也只取前两行
-  const thought = tail.slice(0, end)
+  const thought = body.slice(0, end)
     .split('\n').map((s) => s.trim()).filter(Boolean)
     .slice(0, 2).join(' ').slice(0, 120);
 
@@ -121,8 +151,16 @@ export function parseThoughtBlock(text) {
  */
 export function thoughtPrompt() {
   return `【每一轮都要写：你的内心】（会折叠成"思考"，他点开才看得见）
-在你要说的话**最前面**，另起一行写一块：
+在你要说的话**最前面**写一块，写成这样：
+
 [[思考]]你对**下一句话**的内心独白
+
+（这里**空一行**，然后才是你要说的话）
+
+⚠️ **两处格式必须照做**（实测最容易错的就是这个）：
+1. 这一块**只占一行**
+2. 它后面**必须空一行**，再写你要说的话。
+   只用一次换行的话，界面会把你的**台词也当成内心**折进去 —— 他就看不见你说的话了
 
 - 第一人称、10~50 字，写**心事**不写**动作** —— 动作写在（）里（那是旁白）
 - ⭐ **想的是"此刻"**：他刚说的这句话、你手上正在做的事、你眼前的场景。

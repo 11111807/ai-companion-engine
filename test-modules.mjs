@@ -390,6 +390,23 @@ console.log('\n[8] thought.js —— 读消息的停顿感 + 她的内心想法 
   check('太长会被截断（别把一块写成小作文）',
     thought.parseThoughtBlock(`[[思考]]${'啊'.repeat(300)}`).thought.length <= 120);
 
+  // ⭐ 用户实测："对话内容跑到思考框里去了" ——
+  //    提示词里写的是"另起一行"，而模型经常**只用一个换行**分隔内心和台词。
+  //    按"到末尾"算的话整段台词都会被吞进思考框，界面就看不见她说的话了。
+  const nl = thought.parseThoughtBlock('[[思考]]他怎么突然问这个…\n在忙呢，刚看到');
+  check('⭐ 只用一个换行分隔时，台词不能被吞进思考框',
+    nl.thought === '他怎么突然问这个…' && nl.clean === '在忙呢，刚看到',
+    JSON.stringify(nl));
+  check('[[思考]] 独占一行时也对',
+    thought.parseThoughtBlock('[[思考]]\n他怎么突然问这个…\n在忙呢').clean === '在忙呢');
+  check('后面还跟着情绪块时，台词和情绪块都留给正文',
+    (() => {
+      const r = thought.parseThoughtBlock('[[思考]]有点意外\n好呀\n[[情绪]]{"joy":20}');
+      return r.thought === '有点意外' && /好呀/.test(r.clean) && /\[\[情绪\]\]/.test(r.clean);
+    })());
+  check('真的只写了内心（没有台词）→ 正文为空，交给兜底去补',
+    thought.parseThoughtBlock('[[思考]]就是想他了').clean === '');
+
   const block = thought.thoughtPrompt();
   check('⭐ 写的是"对下一句话的内心独白"',
     /下一句话/.test(block) && /内心独白/.test(block) && /你的内心/.test(block));
