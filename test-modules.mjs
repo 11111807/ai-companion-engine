@@ -23,6 +23,7 @@ import * as thought from './src/thought.js';
 import * as ending from './src/ending.js';
 import * as voice from './src/voice.js';
 import * as repeat from './src/repeat.js';
+import * as chunk from './src/chunk.js';
 
 let pass = 0;
 let fail = 0;
@@ -38,7 +39,7 @@ const hasDom = () => typeof document !== 'undefined' || typeof localStorage !== 
 console.log('\n[0] 每个模块都能脱离 app.js 和浏览器单独加载 ...');
 {
   check('这个测试跑在 node 里（没有 document / localStorage）', !hasDom());
-  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending, voice, repeat })) {
+  for (const [name, mod] of Object.entries({ format, search, storage, memoryIO, narration, thought, ending, voice, repeat, chunk })) {
     check(`${name}.js 能单独 import`, !!mod && Object.keys(mod).length > 0,
       `${Object.keys(mod).length} 个导出`);
   }
@@ -508,6 +509,56 @@ console.log('\n[10] storage.js —— API Key 是全局一份（所有好友共�
   check('空值不炸', JSON.stringify(storage.pickGlobal(null)) === '{}'
     && JSON.stringify(storage.omitGlobal(null)) === '{}');
   check('全局 key 的名字是 xiaoyu.global.v1', storage.GLOBAL_KEY === 'xiaoyu.global.v1');
+}
+
+// ---------------------------------------------------------------- 11) chunk.js
+console.log('\n[11] chunk.js —— 她的回复怎么拆成几条（从 app.js 搬出来的）...');
+{
+  // 行首自己加的标签：用户截图里那条
+  check('⭐ 行首的【…】被剥掉',
+    chunk.stripLabel('【回应他的"嗯嗯"】我只是在等你') === '我只是在等你',
+    chunk.stripLabel('【回应他的"嗯嗯"】我只是在等你'));
+  check('方括号 / 全角括号都认',
+    chunk.stripLabel('[想了想] 好呀') === '好呀'
+    && chunk.stripLabel('［补充］真的不用急') === '真的不用急');
+  check('只剥**行首**（句子中间的不动）',
+    chunk.stripLabel('他说的是"[重点]这个"') === '他说的是"[重点]这个"');
+  check('太长的括号不当标签（12 字以内才算）',
+    chunk.stripLabel('【这是一句很长很长很长的说明文字】正文') !== '正文');
+  check('空值不炸', chunk.stripLabel('') === '' && chunk.stripLabel(null) === '');
+
+  // 连发拆分
+  const split = chunk.splitMessages('你好呀\n\n今天天气不错', { maxBurst: 2 });
+  check('空行拆成两条', split.length === 2, JSON.stringify(split));
+  check('没有空行时按单换行拆',
+    chunk.splitMessages('你好呀\n今天天气不错', { maxBurst: 2 }).length === 2);
+  check('超出的并进最后一条（不刷屏）',
+    chunk.splitMessages('一\n\n二\n\n三\n\n四', { maxBurst: 2 }).length === 2,
+    JSON.stringify(chunk.splitMessages('一\n\n二\n\n三\n\n四', { maxBurst: 2 })));
+  check('⭐ 拆完顺手把行首标签剥了',
+    chunk.splitMessages('【回应】在的\n\n【补充】真的在', { maxBurst: 2 })
+      .every((p) => !/【/.test(p)));
+  check('角色名前缀去掉（名字是传进来的）',
+    chunk.splitMessages('小雨：在的呀', { maxBurst: 1, nameAlt: ['小雨'] })[0] === '在的呀');
+  check('别的名字不该被误伤',
+    chunk.splitMessages('苏亦：在的呀', { maxBurst: 1, nameAlt: ['小雨'] })[0] === '苏亦：在的呀');
+  check('（空行）这种写错的标记还原成真空行',
+    chunk.splitMessages('在的\n\n（空行）\n\n好呀', { maxBurst: 3 }).length === 2,
+    JSON.stringify(chunk.splitMessages('在的\n\n（空行）\n\n好呀', { maxBurst: 3 })));
+  check('空 / 纯标点不炸',
+    chunk.splitMessages('') .length === 0 && chunk.splitMessages('。。。').length === 0
+    && chunk.splitMessages(null).length === 0);
+
+  // 台词 + 旁白
+  const items = chunk.replyItems([
+    { text: '（抬头看了一眼钟）', narr: true },
+    { text: '快九点半了\n\n你还不睡？', narr: false },
+  ], { maxBurst: 2 });
+  check('旁白单独成一条、不占连发名额',
+    items.length === 3 && items[0].narr === true && items[1].narr === false,
+    JSON.stringify(items.map((x) => [x.content, x.narr])));
+  check('台词的条数按 maxBurst 收', items.filter((x) => !x.narr).length === 2);
+  check('空值不炸', chunk.replyItems(null).length === 0 && chunk.replyItems([]).length === 0);
 }
 
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

@@ -482,7 +482,60 @@ console.log('\n[10] 「她怎么回」那三个设置真的挂到对话上（用
     app.$$('#messages .wx-row').every((r) => !/约 45 字/.test(r.textContent)));
 }
 
-// ---------------------------------------------------------------- 收尾
-for (const w of windows) { try { w.close(); } catch {} }
+// ---------------------------------------------------------------- 11) 自己加的标签
+console.log('\n[11] 她在行首自己加的【标签】要剥掉（用户截图里那条）...');
+{
+  // 用户实测的原文（截图）：【回应他的"嗯嗯"】我只是在等你，不用急
+  // 提示词里禁止写标题，它偶尔还是这么干 —— 那就在上屏前剥掉。
+  const app = mkApp({ reply: '【回应他的"嗯嗯"】我只是在等你，不用急\n\n【补充】真的不用急' });
+  await app.send('嗯嗯');
+  const rows = app.$$('#messages .wx-row').map((r) => r.textContent.trim());
+  const mine = rows.slice(-2).join(' | ');
+  check('⭐ 行首的【…】被剥掉了', !/【/.test(mine) && /我只是在等你/.test(mine), mine);
+  check('第二条里的标签也剥了', /真的不用急/.test(mine) && !/补充/.test(mine), mine);
+
+  // 存下来的也不该带着（刷新页面会重画，不能只在上屏时干净）
+  const saved = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+  check('存盘里也没有【标签】', !saved.some((m) => /【/.test(String(m.content))),
+    JSON.stringify(saved.slice(-2).map((m) => m.content)));
+
+  // 正常的方括号内容不该被误伤（只在**行首**、且不超过 12 字才剥）
+  const app2 = mkApp({ reply: '他说的是"[重点]这个"，我记住了' });
+  await app2.send('你记一下');
+  const rows2 = app2.$$('#messages .wx-row').map((r) => r.textContent.trim());
+  check('句子中间的方括号不动', /\[重点\]/.test(rows2.join(' ')), rows2.at(-1));
+}
+
+// ---------------------------------------------------------------- 12) 又说了一遍
+console.log('\n[12] 她又在提那件反复提的事 → 重说一遍（用户："说了不要再说，过两轮又来"）...');
+{
+  // 造几轮都提"明天要早起"的历史 → repeatedTopics 抓得到
+  const chat = [];
+  for (let i = 0; i < 3; i++) {
+    chat.push(msg('user', `随便说点第${i}句`, 30 - i * 5));
+    chat.push(msg('assistant', `明天要早起，得早点睡啦${i}`, 29 - i * 5));
+  }
+  const app = mkApp({
+    chat,
+    // 第一次请求照旧提那件事（提示词没拦住），重写那次就改了
+    replies: ['明天要早起，我先睡了啊', '好，那我不说这个了，你困不困'],
+    config: { showThink: false, burst: 1 },
+  });
+  await app.send('在吗');
+
+  const last = app.$$('#messages .wx-row').at(-1)?.textContent.trim() || '';
+  check('⭐ 复读被拦下来、换成了重写后的那句',
+    /你困不困/.test(last) && !/明天要早起/.test(last), last);
+  check('重写只花一次请求（没有循环）', app.requests.length === 2, String(app.requests.length));
+
+  const saved = JSON.parse(app.window.localStorage.getItem('xiaoyu.chat.v1'));
+  // ⚠️ 只看**本轮新增的**：前面那几轮历史里本来就带着"明天要早起"（那是素材）
+  const added = saved.slice(chat.length);
+  check('本轮存下来的也是重写后的那句',
+    !added.some((m) => /明天要早起/.test(String(m.content)))
+    && added.some((m) => /你困不困/.test(String(m.content))),
+    JSON.stringify(added.map((m) => m.content)));
+}
+
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
 process.exit(fail ? 1 : 0);

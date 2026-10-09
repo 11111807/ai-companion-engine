@@ -293,14 +293,15 @@ console.log('\n[7.5] 用户实测："中午带她去开会，晚上就忘了" ..
     { role: 'user', content: '中午带你去公司开个会，一点开始', ts: NOW - 600e3 },
     { role: 'assistant', content: '啊我还没准备好', ts: NOW - 590e3 },
   ];
-  for (let i = 0; i < 20; i++) {
+  // ⚠️ 要造得比 MAX_POINT_ITEMS 多，才测得到"装不下时写明丢了多少"（22 句上限）
+  for (let i = 0; i < 40; i++) {
     slice.push({ role: 'user', content: `随便聊聊第${i}条，今天天气还行挺舒服的`, ts: NOW - (500 - i * 5) * 1000 });
     slice.push({ role: 'assistant', content: '嗯嗯我知道啦', ts: NOW - (499 - i * 5) * 1000 });
   }
   const one = summarizeConversation(slice, { since: 0, keepRecent: 2 });
   check('⭐ 关键事件不会被闲聊挤掉（旧代码按长度挑，正好把它挤掉了）',
     /开个会/.test(one?.line || ''), (one?.line || '').slice(0, 50));
-  check('一条要点能装下的条数上限提到 14', MAX_POINT_ITEMS === 14, String(MAX_POINT_ITEMS));
+  check('一条要点能装下的条数上限提到 22', MAX_POINT_ITEMS === 22, String(MAX_POINT_ITEMS));
   check('装不下的会写明"还有 N 句闲聊没记"（不是悄悄丢）',
     /还有 \d+ 句闲聊没记/.test(one?.line || ''), (one?.line || '').slice(-22));
 
@@ -383,13 +384,15 @@ console.log('\n[7.6] 一天 260 条时，中午那件事必须还在提示词里
   check('⭐ 中午那句就在上下文里（不用靠检索）',
     hist.some((m) => String(m.content).includes('开个会')));
 
-  // 再试"连 400 条都装不下"的情况：这时候该由"今天做过的事"兜住
+  // 再试"连完整上下文都装不下"的情况：这时候该由"今天做过的事"兜住。
+  // ⚠️ 窗口这一轮从 400 条放宽到 600 条（用户要"记忆范围更广"），
+  //    所以要造 700 条才挤得出去 —— 不然前提不成立，测的就是"还在窗口里"。
   const many = [];
   let t2 = NOW - 11 * 3600e3;
   const push2 = (role, content) => { many.push({ role, content, ts: t2 }); t2 += 30 * 1000; };
   push2('user', '中午带你去公司开个会，一点开始');
   push2('assistant', '啊我还没准备好');
-  for (let i = 0; i < 470; i++) push2(i % 2 ? 'assistant' : 'user', `随便聊聊第${i}条，今天天气还行`);
+  for (let i = 0; i < 700; i++) push2(i % 2 ? 'assistant' : 'user', `随便聊聊第${i}条，今天天气还行`);
   push2('user', '晚上吃什么');
 
   const app2 = bootApp({
@@ -404,7 +407,7 @@ console.log('\n[7.6] 一天 260 条时，中午那件事必须还在提示词里
   await app2.send('我们中午去干嘛了？');
   const sys2 = app2.lastRequest().messages.find((m) => m.role === 'system').content;
   const hist2 = app2.lastRequest().messages.filter((m) => m.role !== 'system');
-  check('超过 400 条时窗口确实装不下（前提成立）',
+  check('超过 600 条时窗口确实装不下（前提成立）',
     !hist2.some((m) => String(m.content).includes('开个会')), `${hist2.length} 条`);
   check('⭐ 这时由「今天你们已经做过的事」兜住：中午开会还在提示词里',
     /【今天你们已经做过的事】/.test(sys2) && /开个会/.test(sys2));
@@ -480,10 +483,10 @@ console.log('\n[9] 从很久以前翻出相关的话 ...');
   // 很久以前说过做饭（这条要被挤出完整上下文窗口，检索才有意义）
   push('user', '我今天自己做饭，煮了个番茄鸡蛋面', 60 * 24 * 3);
   push('assistant', '听起来不错', 60 * 24 * 3 - 1);
-  // 中间夹 260 轮无关寒暄 —— 注意要**真的超过上下文窗口**
-  //（这一轮窗口从 200 条放宽到 400 条：不足 400 条的话那条记录还在窗口里，
-  //  这条测试就变成假绿了）
-  for (let i = 0; i < 260; i++) {
+  // 中间夹 400 轮无关寒暄 —— 注意要**真的超过上下文窗口**
+  //（窗口一路放宽：200 → 400 → **600 条**（用户要"记忆范围更广"）。
+  //  不足 600 条的话那条记录还在窗口里，这条测试就变成假绿了 —— 已经踩过两次。）
+  for (let i = 0; i < 400; i++) {
     push('user', `随便聊聊第${i}条 今天天气还行`, 60 * 24 * 2 - i * 9);
     push('assistant', '嗯嗯', 60 * 24 * 2 - i * 9 - 1);
   }
@@ -571,7 +574,8 @@ console.log('\n[11] 内置时钟可以往前拨 ...');
   const btn = app.$$('[data-clock]').find((b) => b.dataset.clock === '120');
   btn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
-  const after = JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1'));
+  // 内置时钟现在是**全局**的（见 storage.js 的 GLOBAL_FIELDS）
+  const after = JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1') || '{}');
   check('点 +2 小时后偏移 = 2 小时', Number(after.clockOffset) === 120 * 60000,
     String(after.clockOffset));
   check('时钟显示跟着变了', /\d+\/\d+ 周. \d{2}:\d{2}/.test(app.$('#clockNow').textContent),

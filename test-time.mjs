@@ -496,11 +496,16 @@ console.log('\n[9] 时间旋钮：直接改年月日时分（用户反馈"按钮
   check('时间跳了之后聊天区没有被重画（同一个 DOM 节点）',
     !!bubbleBefore && bubbleBefore === bubbleAfter);
 
-  check('拨完之后偏移量存下来了',
-    Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset) === 3600000,
-    JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset);
+  // ⚠️ 内置时钟现在是**全局**的（世界的时间，不是某个好友的属性）——
+  //    以前存在每个好友的 config 里，换个好友时间就回到现实了。
+  const clockOff = () => Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1') || '{}').clockOffset) || 0;
+  check('拨完之后偏移量存进**全局**那一份（所有好友共用同一个"现在"）',
+    clockOff() === 3600000, String(clockOff()));
+  check('好友自己的 config 里不再存时间（一处存比散在 N 个好友里干净）',
+    !('clockOffset' in JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1') || '{}')));
   check('时钟显示跟着走了', $('#clockNow').textContent !== '—', $('#clockNow').textContent);
-  check('说明里告诉他"已经往前拨了"', /已经往前拨了/.test($('#clockNote').textContent),
+  check('说明里写的是**累计**偏移（用户误会过"我拨一小时怎么显示加了 2 天"）',
+    /累计/.test($('#clockNote').textContent) && /比现实快/.test($('#clockNote').textContent),
     $('#clockNote').textContent.trim().slice(0, 30));
   check('选择器里的时间也同步跳了',
     new Date($('#clockPick').value).getTime() > Date.now() + 3000000,
@@ -511,16 +516,15 @@ console.log('\n[9] 时间旋钮：直接改年月日时分（用户反馈"按钮
   const target = new Date(2027, 4, 20, 14, 30, 0, 0);
   $('#clockPick').value = `${target.getFullYear()}-05-20T14:30`;
   $('#clockPick').dispatchEvent(new app.window.Event('change', { bubbles: true }));
-  const off = Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset);
+  const off = clockOff();
   check('选到哪天就是哪天（年月日时分都算准了）',
     Math.abs(off - (target.getTime() - Date.now())) < 60000, String(Math.round(off / 60000)));
 
   // 回到现在
   openPlus();
   $('[data-clock="reset"]').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  check('「回到现在」把偏移清零',
-    Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset) === 0);
-  check('清零后说明回到默认文案', !/已经往前拨了/.test($('#clockNote').textContent),
+  check('「回到现在」把偏移清零', clockOff() === 0, String(clockOff()));
+  check('清零后说明回到默认文案', !/累计/.test($('#clockNote').textContent),
     $('#clockNote').textContent.trim().slice(0, 30));
 
   // 时间分隔条的文字要跟着改（不然跳一天之后还写着"3 小时前"）
@@ -550,7 +554,13 @@ console.log('\n[10] 时间感知：他问"几点了"，她得说对（含场景�
   check('⭐ 场景写"晚上"、时间却是早上 → 判定为冲突', /写着"晚上"/.test(clash) && /其实是早上/.test(clash),
     clash.split('\n')[0]);
   check('校正里点明了"你还在同一个地方"', /同一个地方/.test(clash));
-  check('校正里点名不许说"快十一点了""该睡了"', /快十一点了/.test(clash) && /该睡了/.test(clash));
+  // ⚠️ 这条断言原来是"点名不许说'快十一点了'"——**那条反例本身闯了祸**：
+  //    模型把它当成了答案照抄（用户把时钟拨到早上九点，她张口就是"十一点了"）。
+  //    所以现在反过来钉：校正里**不许**出现具体的时间词。
+  check('⭐ 校正里不许出现具体时间词（负面例子会被当成答案照抄）',
+    !/十一点/.test(clash), clash.slice(0, 60));
+  check('校正里给了正面做法：照【现在的时间】说、别从聊天记录推断',
+    /照【现在的时间】说/.test(clash) && /别从聊天记录里推断/.test(clash));
   check('对得上就不啰嗦（"早上"的场景 + 早上）',
     sceneTimeClash('你刚醒，赖在床上不想起', t) === '');
   check('场景里没有时间词就不管', sceneTimeClash('你在图书馆，摊着书', t) === '');
@@ -560,11 +570,18 @@ console.log('\n[10] 时间感知：他问"几点了"，她得说对（含场景�
   const sys = buildSystemPrompt({ name: '阿哲' }, {
     scene: eveningScene, timeText: describeTime(t), now: t,
   });
-  check('时间块的标题升级成"唯一权威"',
-    /【现在的时间】（这一行是\*\*唯一权威\*\*/.test(sys) && /比下面的场景描述更硬/.test(sys));
+  check('⭐ 时间块是"唯一权威"，而且比聊天记录更硬',
+    /【现在的时间】（\*\*唯一权威\*\*，比聊天记录和场景描述都硬）/.test(sys)
+    && /这是你唯一的时间来源/.test(sys));
+  check('⭐ 时间块排在**最前面**（紧跟在身份之后、记忆之前）',
+    sys.indexOf('【现在的时间】') > 0
+    && sys.indexOf('【现在的时间】') < sys.indexOf('【你们不是第一次聊天】'),
+    `第 ${sys.indexOf('【现在的时间】')} 字 / 记忆在第 ${sys.indexOf('【你们不是第一次聊天】')} 字`);
+  check('⭐ 明说"哪怕上一轮刚说过另一个时间"（用户实测：拨了时间她还在沿用旧的）',
+    /哪怕上一轮你刚说过另一个时间/.test(sys));
   check('⭐ 明确要求"他问时间就照实说"', /他问时间就照实说/.test(sys) && /照着上面那一行念/.test(sys));
-  check('⭐ 明确禁止自己估一个数（点名"快十一点了"这种）',
-    /绝对不许自己估一个数/.test(sys) && /这比沉默还糟/.test(sys));
+  check('⭐ 明确禁止自己估一个数、也禁止沿用上一轮说过的',
+    /绝对不许自己估一个数/.test(sys) && /不要沿用上一轮说过的那个时间/.test(sys));
   check('要求她此刻的状态和时间对得上（早上八点不该瘫在椅子上听歌）',
     /早上八点该是刚醒/.test(sys) && /不该"瘫在椅子上听歌"/.test(sys));
   check('⭐ 冲突时把校正写进了提示词', /现在其实是早上/.test(sys));

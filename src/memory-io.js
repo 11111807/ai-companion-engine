@@ -245,8 +245,9 @@ function spread(items, n) {
  */
 export function summarizeConversation(msgs, { since = 0, keepRecent = 6 } = {}) {
   const list = Array.isArray(msgs) ? msgs : [];
-  // 累积够 10 条新的才压一次，避免太碎
-  if (list.length - since < 10) return null;
+  // 累积够 6 条新的就压一次（原来是 10）。
+  // 用户："提取要点的频率加快，加多" —— 压得越勤，掉出上下文的那些话越早变成长期记忆。
+  if (list.length - since < 6) return null;
 
   const slice = list.slice(since, list.length - keepRecent);
   if (slice.length < 4) return null;
@@ -272,16 +273,18 @@ export function summarizeConversation(msgs, { since = 0, keepRecent = 6 } = {}) 
     + (her.length ? `；你当时说「${her.join('；')}」` : '')
     + (dropped ? `（还有 ${dropped} 句闲聊没记）` : '');
 
-  return { line: line.slice(0, 400), pointer: list.length - keepRecent };
+  // 上限 700（原来是 400）：一条要点要装 22 句，400 字会把最后面的时段整段截掉
+  //（实测：早上、中午的事件都在，晚上那件被切没了）。
+  return { line: line.slice(0, 700), pointer: list.length - keepRecent };
 }
 
 /** 一条要点里最多写几条他的消息（一条要点对应一段对话） */
-export const MAX_POINT_ITEMS = 14;
+export const MAX_POINT_ITEMS = 22;
 
 // ---------------------------------------------------------------- 三点五、今天发生过什么
 
 /** 一条事件线里最多列几条 */
-export const TIMELINE_MAX = 14;
+export const TIMELINE_MAX = 20;
 
 /**
  * "今天发生过什么" —— 只取**已经掉出完整上下文窗口**的那部分。

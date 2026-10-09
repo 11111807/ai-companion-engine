@@ -73,6 +73,8 @@ import {
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
+// 她的回复 → 待上屏的条目（连发拆分 / 行首标签 / 角色名前缀）。纯函数，可单测。
+import { replyItems as chunkItems } from './chunk.js';
 import { parseThoughtBlock, thinkPause, recentThoughts, thoughtVaryBlock } from './thought.js';
 // 她最近几轮反复提到的事（台词 + 内心都算）——
 // 旁白和内心各自有"别重复"的防护，唯独"同一件事被反复拿出来说"一直没人管
@@ -171,8 +173,12 @@ function renderClock() {
   const note = $('#clockNote');
   if (note) {
     const off = clockOffsetText();
+    // ⚠️ 这里是**累计**偏移，不是"这一次拨了多少"。
+    //    用户报过"我往前拨一小时，怎么显示加了 2 天 22 小时"—— 他之前已经拨过
+    //    2 天 21 小时了。数字没错，是文案没说清，所以这里写明"累计"。
     note.textContent = off
-      ? `已经往前拨了 ${off}。跳过去之后，她会觉得真的过了这么久。`
+      ? `她那边比现实${off.startsWith('+') ? '快' : '慢'} ${off.slice(1)}`
+        + `（**累计**的：你之前拨过的也算在里面）。她说"几点了"就按上面那个时刻。`
       : '时间是内置的，不跟现实走。看场两小时的电影就点「+2 小时」；想跳到某一天，直接点上面的时间自己选。';
   }
   syncClockPicker();
@@ -206,7 +212,10 @@ function applyTimeJump() {
   // 时间一跳，场景很可能得跟着变（晚上 → 第二天早上）
   ensureScene();
   const off = clockOffsetText();
-  toast(off ? `时间已拨到 ${off}` : '时间已回到现在', 1800);
+  // 提示里直接说"她那边现在是几点" —— 光说"拨了多久"他还得自己算
+  const d = new Date(now());
+  const at = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  toast(off ? `她那边现在是 ${at}` : '时间已回到现在', 1800);
 }
 
 /** 只改时间分隔条的文字，不重画气泡（便宜得多） */
@@ -781,80 +790,15 @@ const herInitial = () => (herName().slice(-1) || CHARACTER.realName.slice(-1));
 const myInitial = () => (state.config.userName?.trim()?.[0]) || '我';
 
 // ---------------------------------------------------------------- 连发拆分
+//
+// "她这段回复该拆成几条、行首那个【标签】怎么剥、角色名前缀怎么去"
+// 这一整套解析都在 **src/chunk.js**（纯函数），这里只把当前环境的东西喂进去。
 
-/**
- * 把模型生成的内容拆成"几条短消息"
- * 模型被要求用空行分隔多条，但经常只换行，所以两种都要处理。
- */
-function splitMessages(text, maxBurst = 2) {
-  let t = String(text || '').trim();
-  if (!t) return [];
-
-  // 去掉可能的角色名前缀（"小雨："、"新名字："）
-  // 名字是可改的，所以不能再写死 —— 只认 CHARACTER.name 的话，
-  // 改了名之后模型偶尔冒出的"新名字：xxx"就漏过去了。
-  const nameAlt = [herName(), CHARACTER.name, CHARACTER.realName]
-    .filter(Boolean)
-    .map((s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .filter((v, i, a) => a.indexOf(v) === i);
-  t = t.replace(new RegExp(`^(?:${nameAlt.join('|')}|我)\\s*[:：]\\s*`, 'gm'), '');
-
-  // 模型有时会把"空行"当成要输出的文字：写成【空行】/(空行)/[空行]，
-  // 或者输出 "\n\n" 这种字面转义。这些还原成真正的换行，否则会露馅。
-  t = t
-    // 单独成行的标记 → 变成真空行（先做，因为带空格/变体多）
-    .replace(/^[ \t]*(?:【|\[|\()?\s*空\s*行\s*(?:】|\]|\))?[ \t]*$/gm, '')
-    // 夹在文字中间的标记 → 变成换行
-    .replace(/(?:【|\[|\()\s*空\s*行\s*(?:】|\]|\))/g, '\n\n')
-    .replace(/\\n/g, '\n')
-    .replace(/^[ \t]*(?:【|\[|\()?\s*换\s*行\s*(?:】|\]|\))?[ \t]*$/gm, '')
-    .replace(/(?:【|\[|\()\s*换\s*行\s*(?:】|\]|\))/g, '\n');
-
-  // 优先按空行拆
-  let parts = t.split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
-
-  // 如果没有空行，按单换行拆（微信里换行通常就是新消息）
-  if (parts.length === 1 && /\n/.test(parts[0])) {
-    const single = parts[0].split(/\n+/).map((s) => s.trim()).filter(Boolean);
-    if (single.length > 1) parts = single;
-  }
-
-  // 过滤掉纯标点的碎片
-  parts = parts.filter((p) => p.replace(/[\s\p{P}]/gu, '').length > 0);
-  if (!parts.length) return [];
-
-  // 限制条数：超出的合并到最后一条，避免刷屏
-  // 注意：合并要用空行而不是单换行。否则合并出来的气泡里会残留换行，
-  // 下一次拆分时又会被当成多条消息处理。
-  if (parts.length > maxBurst) {
-    const keep = parts.slice(0, maxBurst - 1);
-    keep.push(parts.slice(maxBurst - 1).join('\n\n'));
-    parts = keep;
-  }
-  return parts;
-}
-
-/**
- * 她的回复 → 待发出的条目（台词 / 旁白各成一条）。
- *
- * 旁白**不占连发条数**：它是舞台说明，不是她发的消息，
- * 一轮里带一两个很正常，不该因此把台词挤掉。
- * 台词照旧受 burst 限制（多了就并进上一条，见 splitMessages）。
- *
- * @returns {Array<{content: string, narr: boolean}>}
- */
-function replyItems(text, maxBurst) {
-  const items = [];
-  let left = Math.max(1, Number(maxBurst) || 2);
-  for (const seg of splitNarration(text)) {
-    if (seg.narr) { items.push({ content: seg.text, narr: true }); continue; }
-    const parts = splitMessages(seg.text, left);
-    left = Math.max(1, left - parts.length);
-    for (const p of parts) items.push({ content: p, narr: false });
-  }
-  return items;
-}
-
+/** 她的回复（文本）→ 待发出的条目（台词 / 旁白各成一条） */
+const replyItems = (text, maxBurst) => chunkItems(splitNarration(text), {
+  maxBurst,
+  nameAlt: [herName(), CHARACTER.name, CHARACTER.realName],   // 名字可改，每次都得取当前那个
+});
 // ---------------------------------------------------------------- 记忆提取
 //
 // 解析和落盘的实际逻辑在 src/memory-io.js（那一块的说明也写在那儿）。
@@ -1430,15 +1374,14 @@ function applyAffectionDecay() {
  *   - DeepSeek 新模型上下文 1M，而且前缀命中缓存后极便宜 → 给足，别让她失忆
  *   - 本地小模型只有 4k~8k 上下文 → 必须收着，否则又慢又胡说
  *
- * ⚠️ 云端这一档调过（用户实测"中午带她去开会、晚上就忘了"）：
- * 以前是 40000 字 / **200 条**，而条数上限才是真凶 ——
- * 一天聊 260 条时前面的 60 条被整段切掉，中午那件事就在里面。
- * 现在放宽到 60000 字 / 400 条：一天的量装得下，也不会把上下文撑爆
- *（提示词本身约 1 万字，60000 字中文大致 4~6 万 token，离 128k 还很远）。
+ * ⚠️ 云端这一档一路放宽（都是用户实测推着走的）：
+ *   40000/200 条时"中午带她去开会、晚上就忘了"（一天 260 条，前面 60 条被整段切掉）
+ *   → 60000/400 条 → 现在 80000 字 / **600 条**（用户："记忆范围再广一些"）。
+ *   要点（summary）是**独立预算**，不跟这段抢名额（见 buildChatContext）。
  */
 function contextBudget() {
   const isNative = getProvider(state.config.provider)?.id === 'native-local';
-  return isNative ? { maxChars: 6000, maxMsgs: 30 } : { maxChars: 60000, maxMsgs: 400 };
+  return isNative ? { maxChars: 6000, maxMsgs: 30 } : { maxChars: 80000, maxMsgs: 600 };
 }
 
 /**
@@ -1458,7 +1401,8 @@ function buildChatContext(maxChars, maxMsgs) {
 
   // 要点条目现在每条更长（最多 400 字），给它的预算也要跟着涨，
   // 否则 memoryBlock 里塞了 20 多条、实际只放得下几条。
-  const summaryBudget = state.profile.summary?.length ? 8000 : 0;
+  // 要点条目变长（最多 700 字）、条数变多（30 条），给它的预算也跟着涨到 16000
+  const summaryBudget = state.profile.summary?.length ? 16000 : 0;
   const recentBudget = Math.max(1600, maxChars - summaryBudget);
 
   // 从最新往回收集
@@ -1529,6 +1473,22 @@ async function nativeStreamChat({ systemPrompt, messages, temperature, maxTokens
   return text;
 }
 
+/** 发一次"只要一小段"的请求（三个兜底共用：补台词 / 补内心 / 重说一遍）。
+ *  它们原来各有一份一模一样的请求代码，改一处忘两处是迟早的事。 */
+async function onceText(args) {
+  if (getProvider(state.config.provider).id === 'native-local') return nativeStreamChat(args);
+  let out = '';
+  await streamChat({
+    ...args,
+    apiKey: state.config.apiKey.trim(),
+    endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
+    model: state.config.model || DEFAULT_MODEL,
+    thinking: false,          // 补一小段不用深度思考
+    onDelta(piece) { out += piece; },
+  });
+  return out;
+}
+
 /**
  * 兜底：她只写了动作、一个字都没说，把欠的那句话要回来。
  *
@@ -1569,19 +1529,7 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
   };
 
   try {
-    let out = '';
-    if (getProvider(state.config.provider).id === 'native-local') {
-      out = await nativeStreamChat(args);
-    } else {
-      await streamChat({
-        ...args,
-        apiKey: state.config.apiKey.trim(),
-        endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
-        model: state.config.model || DEFAULT_MODEL,
-        thinking: false,          // 补一句话不用深度思考
-        onDelta(piece) { out += piece; },
-      });
-    }
+    const out = await onceText(args);
     // 她可能又顺手带上隐藏块（记忆 / 情绪 / 思考）→ 擦掉，这里只取台词 + 思考
     const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
     const words = replyItems(cut.clean, 1).filter((it) => !it.narr).map((it) => it.content);
@@ -1604,7 +1552,9 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
  *
  * @returns {Promise<string>} 补回来的那句心里话（可能为空串）
  */
-async function askForThought({ systemPrompt, history, reply, signal }) {
+async function askForThought({ systemPrompt, history, reply, signal, avoid = [] }) {
+  // avoid：她这几轮一直在惦记的事。写了但还在想同一件事时也走这条路（见 respond）。
+  const bad = (Array.isArray(avoid) ? avoid : []).map((x) => x?.text).filter(Boolean).join('、');
   const messages = [
     ...history,
     { role: 'assistant', content: reply },
@@ -1613,7 +1563,9 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
       content: '（系统提示：你刚才忘了写"内心"那一块。现在**只**输出那一块，'
         + '格式是：[[思考]]你此刻对下一句话的心里话（10~50 字，第一人称，'
         + '不写动作、不复述他已经知道的话，也**别用"他…了，我应该…"这种句式** —— '
-        + '像人一样随口想一下）。不要重复你说过的台词，不要写别的。）',
+        + '像人一样随口想一下）。不要重复你说过的台词，不要写别的。）'
+        + (bad ? `\n⚠️ 而且：**不要再想「${bad}」这件事** ——`
+          + '你最近几轮一直在惦记它。想一件**当下**的（他刚说的这句话、你手上正在做的事）。' : ''),
     },
   ];
   const args = {
@@ -1625,19 +1577,7 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
   };
 
   try {
-    let out = '';
-    if (getProvider(state.config.provider).id === 'native-local') {
-      out = await nativeStreamChat(args);
-    } else {
-      await streamChat({
-        ...args,
-        apiKey: state.config.apiKey.trim(),
-        endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
-        model: state.config.model || DEFAULT_MODEL,
-        thinking: false,
-        onDelta(piece) { out += piece; },
-      });
-    }
+    const out = await onceText(args);
     // 她可能直接回了心里话、也可能还是带着 [[思考]] 标记 —— 两种都要能取到。
     // ⚠️ 兜底（cut.clean）拿到的其实是**她的台词**，所以只取第一行、并且去掉
     //    括号旁白 —— 不然整段台词会被当成"内心"存下来，下一轮又原样列进提示词里
@@ -1655,20 +1595,61 @@ async function askForThought({ systemPrompt, history, reply, signal }) {
  * 这一轮生成**属于**哪个好友。
  *
  * 为什么必须有它（用户实测："给这个发，但另一个回的我"）：
- *   state.config / state.messages / state.profile 永远是**当前好友**那一份，
- *   而一轮回复要跨好几个 await（先想一下 → 请求 → 兜底补一次 → 按微信节奏逐条发）。
- *   他在她打字的时候点开另一个好友，loadPersona 就把这三样换成别人的了 ——
- *   于是回复、记忆、好感度全落到**别人**身上。
- *   两个好友人设又很像的时候，他甚至分不清是谁回的他。
+ *   state.config / messages / profile 永远是**当前好友**那一份，而一轮回复要跨好几个
+ *   await。他在她打字时点开另一个好友，loadPersona 就把这三样换成别人的了 ——
+ *   回复、记忆、好感度全落到**别人**身上（人设像的时候他甚至分不清谁回的）。
+ * 所以一轮开始时记下"是谁"，每个 await 之后都问一句"还是他吗"，不是就整轮作废。
  *
- * 所以：一轮开始时记下"是谁"，每个 await 之后都问一句"还是他吗"，
- * 不是就整轮作废 —— 他已经看别人去了，这一轮不该再写任何东西。
- *
- * ⚠️ 判据是"**这一轮发起时**是谁"，所以由每个 async 函数自己捕获 owner 传进来 ——
- *    不用模块级的"当前归属"变量：那样两个生成前后脚收尾时，后一个会把前一个的
- *    标记清掉，守卫就失效了。
+ * ⚠️ 判据由每个 async 函数**自己捕获 owner 传进来**，不用模块级变量 ——
+ *    那样两个生成前后脚收尾时，后一个会把前一个的标记清掉，守卫就失效了。
  */
 const movedAway = (owner) => state.nav.active !== owner;
+
+/** 这一段话里，有没有又提起那几件\"最近反复提\"的事 */
+const hitsRepeat = (text, list) => (Array.isArray(list) ? list : [])
+  .some((x) => x?.text && String(text || '').includes(x.text));
+
+/**
+ * 让她**重说一遍**（这一轮又提了那件反复提的事）。
+ *
+ * 用户实测："哪怕我提示说不要再说这个了、我已经记得了，过一两轮依旧会反复强调。"
+ * 提示词里写了"别再提"（repeatBlock），但那是**软约束** —— 上下文一长就冲淡了。
+ * 所以这里事后检查：这一轮真出现了那几个片段就重新请求一次，并且**点名**说清。
+ * 规矩同"只发旁白就补一次"：**一轮最多重写一次**，补不回来就认了（绝不循环）。
+ *
+ * @returns {Promise<string>} 重写后的文本（失败返回空串）
+ */
+async function askAgain({ systemPrompt, history, reply, repeats, signal }) {
+  const bad = (Array.isArray(repeats) ? repeats : []).map((x) => x?.text).filter(Boolean).join('、');
+  if (!bad) return '';
+  const messages = [
+    ...history,
+    { role: 'assistant', content: reply },
+    {
+      role: 'user',
+      content: `（系统提示：你刚才又提了「${bad}」—— 这件事你最近几轮已经反复说过了，`
+        + '他明确说过不喜欢听重复的。现在**重说一遍**这一轮的回答：'
+        + '同样的意思可以，但**不要再提它**，也不要换个说法再说一遍。'
+        + '说不出来就少说一句。只输出你要发的话，不要解释。）',
+    },
+  ];
+  const args = {
+    systemPrompt,
+    messages,
+    temperature: Number(state.config.temperature) || 1.0,
+    maxTokens: Number(state.config.maxTokens) || 250,
+    signal,
+  };
+
+  try {
+    const out = await onceText(args);
+    // 她可能又带上隐藏块 → 擦掉，这里只取台词
+    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
+    return String(cut.clean || '').trim().slice(0, 600);
+  } catch {
+    return '';
+  }
+}
 
 /** 让她回复（也被"重新开始"复用） */
 async function respond() {
@@ -1844,10 +1825,35 @@ async function respond() {
     // 从"收到他那句话"到"回复生成完"的真实耗时（毫秒）→ 界面上显示成"思考 1.4 秒"
     let thinkMs = Date.now() - t0;
 
+    // 她这一轮反复提的那件事（最近几轮老在说的，台词 + 内心都算）
+    const repeats = repeatedTopics(state.messages);
+
+    // 这一轮已经补过一次请求了吗 —— **最多补一次**，几个兜底不能叠着花好几次钱
+    let repaired = false;
+
+    // ⭐ 又说了一遍那件反复提的事 → 让她重说（用户："哪怕我说不要再说这个了，
+    //    过一两轮依旧会反复强调"）。提示词里已经写了"别再提"，但那是软约束，
+    //    所以这里做一次事后检查 + 点名重写。放在最前面，因为这是最影响观感的一条。
+    if (parts.length && repeats.length && !parts.every((it) => it.narr)
+        && hitsRepeat(parts.map((it) => it.content).join('\n'), repeats)) {
+      const again = await askAgain({
+        systemPrompt,
+        history,
+        reply: parts.map((it) => it.content).join('\n'),
+        repeats,
+        signal: ctrl.signal,
+      });
+      if (movedAway(owner)) return;
+      const fixed = again ? replyItems(again, Number(state.config.burst) || 2) : [];
+      if (fixed.length) {
+        parts = fixed;
+        repaired = true;      // 用掉了这一次机会（不再补思考、也不再次重写）
+        thinkMs = Date.now() - t0;
+      }
+    }
+
     // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
     // 而不是让他再问一遍。见 askForWords 的说明。
-    // 这一轮已经补过一次请求了吗 —— **最多补一次**，两个兜底不能叠着花两次钱
-    let repaired = false;
     if (parts.length && parts.every((it) => it.narr)) {
       const r = await askForWords({
         systemPrompt,
@@ -1862,13 +1868,17 @@ async function respond() {
       if (movedAway(owner)) return;
     }
 
-    // 有台词、但她没写"内心" → 补一次（前提：这一轮还没补过请求）
-    if (!innerThought && !repaired && state.config.showThink !== false && parts.length) {
+    // 内心：没写 → 补一次；写了、但又在想那件反复想的事 → 也要重来一次
+    //（用户："反复强调事情不止是在对话里，在思考内容也有所体现"）
+    const thoughtStuck = !!innerThought && repeats.length && hitsRepeat(innerThought, repeats);
+    if (!repaired && state.config.showThink !== false && parts.length
+        && (!innerThought || thoughtStuck)) {
       const extra = await askForThought({
         systemPrompt,
         history,
         reply: parts.map((it) => it.content).join('\n'),
         signal: ctrl.signal,
+        avoid: thoughtStuck ? repeats : [],
       });
       if (movedAway(owner)) return;
       if (extra) {

@@ -69,7 +69,7 @@ const VAR_OF = {
 const APP_MODULES = [
   'persona', 'zodiac', 'affection', 'relation', 'api', 'providers', 'habits', 'memory',
   'emotion', 'format', 'storage', 'presets', 'me', 'friend-ui', 'ending-ui', 'mood',
-  'personas', 'memory-io', 'search', 'narration', 'thought', 'repeat', 'voice', 'ending',
+  'personas', 'memory-io', 'search', 'narration', 'thought', 'repeat', 'voice', 'ending', 'chunk',
 ];
 
 /** 把 `import { a, b as c } from './x.js'` 换成 `const { a, b: c } = __x;` */
@@ -112,6 +112,7 @@ const EXPORTS = {
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
   thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt', 'recentThoughts', 'thoughtVaryBlock'],
   repeat: ['repeatedTopics', 'repeatBlock'],
+  chunk: ['stripLabel', 'splitMessages', 'replyItems'],
   voice: ['voiceOf', 'toneOf', 'voiceBlock', 'voiceHint'],
   ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
@@ -180,6 +181,7 @@ export function inlineScript(dir = '') {
     narration: load('narration', 'narration'),
     thought: load('thought', 'thought'),
     repeat: load('repeat', 'repeat'),
+    chunk: load('chunk', 'chunk'),
     voice: load('voice', 'voice'),
     ending: load('ending', 'ending'),
     search: load('search', 'search'),
@@ -235,6 +237,9 @@ export function inlineScript(dir = '') {
       })();
       const __repeat = (function () { ${src.repeat}
         return { ${pick(names('repeat'))} };
+      })();
+      const __chunk = (function () { ${src.chunk}
+        return { ${pick(names('chunk'))} };
       })();
       const __voice = (function () { ${src.voice}
         return { ${pick(names('voice'))} };

@@ -288,7 +288,7 @@ console.log('\n[7] 在好友之间切换：记忆互不干涉，时间共用 ...
   app.$$('[data-clock]').find((b) => b.dataset.clock === '60')
     .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   tap('#btnPlus');
-  const offBefore = Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset);
+  const offBefore = Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1') || '{}').clockOffset);
   check('拨了 1 小时', offBefore === 3600000, String(offBefore));
 
   tap('#btnBack');
@@ -314,10 +314,10 @@ console.log('\n[7] 在好友之间切换：记忆互不干涉，时间共用 ...
     && !/小雨才知道的事/.test($('#screen-memory').textContent));
   $('#btnCloseMemory').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
 
-  check('⭐ 内置时间是共用的（切人不会把时间拨回去）',
-    Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.persona.other.config.v1')).clockOffset || 0) === 0
-    && Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.config.v1')).clockOffset) === 3600000,
-    '小雨那份还留着 1 小时');
+  check('⭐ 内置时间是**全局**的：换好友也是同一个"现在"（这一轮从"各存各的"改成全局）',
+    Number(JSON.parse(app.window.localStorage.getItem('xiaoyu.global.v1') || '{}').clockOffset) === 3600000
+    && !('clockOffset' in JSON.parse(app.window.localStorage.getItem('xiaoyu.persona.other.config.v1') || '{}')),
+    '全局那份是 1 小时，好友自己的 config 里不再存');
 
   // 切回去，原来的东西还在
   tap('#btnBack');
@@ -325,7 +325,7 @@ console.log('\n[7] 在好友之间切换：记忆互不干涉，时间共用 ...
   check('切回小雨：聊天记录还在', /小雨的开场白/.test($('#messages').textContent));
   tap('#btnPlus');
   check('切回小雨：好感度还是 70', $('#affNum').textContent === '70', $('#affNum').textContent);
-  check('切回小雨：时间还是拨过的', /已经往前拨了/.test($('#clockNote').textContent));
+  check('切回小雨：时间还是拨过的', /比现实快/.test($('#clockNote').textContent));
 }
 
 console.log('\n[8] 我的资料是全局的（每个好友都看得到）...');
