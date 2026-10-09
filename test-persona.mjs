@@ -24,7 +24,7 @@ import {
   suggestFromTraits, traitAffectionWarning, LEVELS,
   decayForGap, DECAY_MAX, AFFECTION_FLOOR,
 } from './src/affection.js';
-import { buildSystemPrompt, SCENES, SCENES_GENERIC, findScene } from './src/persona.js';
+import { buildSystemPrompt, SCENES, SCENES_GENERIC, findScene, describeTime } from './src/persona.js';
 import { decayFacts, isPermanent, newMeta, touchMeta, retention,
   isObsession, strengthLabel, strengthPercent, OBSESSION_EMO } from './src/memory.js';
 import { intensityOf, isObsessive, isDetailLike } from './src/emotion.js';
@@ -113,7 +113,16 @@ console.log('\n[2.1] 好感度高低 → 态度不一样（用户要的核心）
   check('低好感：不会撒娇、不接暧昧', /更不会撒娇/.test(cold) && /装没听懂/.test(cold));
   check('高好感：黏人、会说想你', /黏人/.test(warm) && /说想你/.test(warm));
   check('高低两档的指令真的不一样', cold !== warm && !/黏人/.test(cold));
-  check('数字写进了提示词', /好感度：10\/100/.test(cold) && /好感度：90\/100/.test(warm));
+  // 档位写进提示词（原来还带精确数字，现在不带了：每轮 +0.4 会让这段每轮都变，
+  // 而提示词前缀一变，整段上下文缓存就失效 —— 见 persona.js 的 volatile 说明）
+  check('档位写进了提示词', /好感度：还很生分/.test(cold) && /好感度：很喜欢你/.test(warm));
+  check('⭐ 精确数字不再进提示词（缓存 + 她本来就不该说出这个数）',
+    !/\d+\/100/.test(cold) && !/\d+\/100/.test(warm));
+  check('同一档里小幅波动 → 这块一个字都不变',
+    affectionBlock(60, { baseline: 60 }) === affectionBlock(64, { baseline: 60 }));
+  check('跨了大档才提一句"比一开始更亲近"',
+    /刚认识的时候是「聊得来」/.test(affectionBlock(88, { baseline: 50 }))
+    && !/刚认识/.test(affectionBlock(88, { baseline: 85 })));
   // 身份交给 relation.js 那块去立，这里只管温度 —— 免得两边说法打架
   check('好感度块里不再重复写关系', !/你们的关系：/.test(cold));
   check('但会提醒"身份和温度是两回事"', /说的是\*\*温度\*\*/.test(cold));
@@ -473,7 +482,9 @@ console.log('\n[5.1] 默认人设（没设过的老用户）行为不变 ...');
   check('还是那个 20 岁大二的小雨', /20 岁，大二在读，学的是视觉传达/.test(sys));
   check('校园生活底色还在', /学校宿舍/.test(sys) && /圆圆/.test(sys));
   check('没设好感度就退回按聊天量估算', /很熟了|非常熟|刚熟起来/.test(sys));
-  check('不会凭空冒出好感度块', !/【你对他的好感度/.test(sys));
+  // 认的是块头那个冒号 —— 提示词别处会**引用**它的名字（"见最后两块"），
+  // 只匹配 `【你对他的好感度` 会把那句引用也算进来。
+  check('不会凭空冒出好感度块', !/【你对他的好感度：/.test(sys));
   check('没有星座块', !/【星座/.test(sys));
 }
 
@@ -1244,6 +1255,46 @@ console.log('\n[12.5] 模型可以不配合，本地检测照样管用 ...');
   app2.$('#btnAddFact').dispatchEvent(new app2.window.MouseEvent('click', { bubbles: true }));
   const p = JSON.parse(app2.window.localStorage.getItem('xiaoyu.profile.v1'));
   check('手动加的重话也被认出来', p.facts.includes('他爱人五年前离开了他'), (p.facts || []).join(' | '));
+}
+
+// ---------------------------------------------------------------- 缓存前缀
+console.log('\n[13] 稳定前缀：两轮之间必须逐字节相同（这条直接决定 API 花多少钱）...');
+{
+  // DeepSeek 的输入缓存按"从第一个 token 起逐字节相同的前缀"算，
+  // 命中的部分价格只有零头。所以**会变的块绝不能排在人设和记忆前面** ——
+  // 时间是分钟级变化的、好感度正常聊一句就 +0.4，它们要是排在前面，
+  // 后面上万 token 的缓存每轮都会被废掉。
+  const T = 1_700_000_000_000;
+  const mk = (now, affection, mood) => buildSystemPrompt(
+    { name: '阿哲', facts: ['他每天自己做饭'] },
+    {
+      now,
+      timeText: describeTime(now),
+      affection,
+      mood,
+      relation: '恋人',
+      herName: '小雨',
+      persona: { custom: true, gender: 'f', age: 24, job: '设计师' },
+    },
+  );
+  const head = (s) => s.slice(0, s.indexOf('【此刻的情况】'));
+
+  const a = mk(T, 50, '【她此刻的心情】\n有点困');
+  const b = mk(T + 60000, 50.4, '【她此刻的心情】\n还不错');   // 时间走了 1 分钟 + 心情变了 + 好感度动了
+  check('⭐ 时间 / 心情 / 好感度都变了，稳定前缀仍然逐字节相同',
+    head(a).length > 0 && head(a) === head(b),
+    `前缀 ${head(a).length} 字`);
+  check('⭐ 稳定前缀占了大头（人设 + 记忆 + 规则都在里面）',
+    head(a).length > a.length * 0.6, `${head(a).length} / ${a.length} 字`);
+  check('易变段确实跟着变了（不是把变化吞掉了）',
+    a.slice(a.indexOf('【此刻的情况】')) !== b.slice(b.indexOf('【此刻的情况】')));
+
+  // 好感度**同一档**里的小幅波动（+0.4）不该让整段提示词变一个字
+  check('⭐ 同一档内的小幅波动 → 整段提示词一模一样（缓存全命中）',
+    mk(T, 50, 'x') === mk(T, 50.4, 'x'));
+  check('跨档时才变', mk(T, 50, 'x') !== mk(T, 72, 'x'));
+  check('同样的参数调两次，结果必须完全一样（没有隐藏的随机/时间依赖）',
+    mk(T, 50, 'x') === mk(T, 50, 'x'));
 }
 
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);

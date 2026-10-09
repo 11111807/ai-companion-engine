@@ -271,6 +271,23 @@ export function buildSystemPrompt(userProfile = {}, opts = {}) {
   const { scene, summary, timeText } = opts;
   const persona = opts.persona || {};
   const parts = [];
+  /**
+   * 每轮都可能变的那几块，**攒到最后再输出**。
+   *
+   * 为什么（这是省钱的关键，不是排版偏好）：
+   *   DeepSeek 的输入有**上下文缓存** —— 从第一个 token 起逐字节相同的**前缀**
+   *   命中缓存时价格只有零头。而"时间/心情/好感度/熟悉度/关注方式"这几块
+   *   **每一轮都在变**（时间是分钟级的、好感度正常聊一句就 +0.4）。
+   *   它们要是排在人设和规则**前面**，就会把后面上万 token 的缓存全部废掉 ——
+   *   每一轮都按全价重新算一遍。
+   *
+   *   所以：**稳定的排前面，会变的排最后**。这样人设 / 记忆 / 规则那几千 token
+   *   一直命中缓存，只有末尾这一小段按全价算。
+   *
+   * ⚠️ 别为了"让模型更当回事"再把它们挪回前面 —— 试过，功能收益很小，
+   *    代价是整段前缀缓存失效。顺带一提，末尾其实也是模型注意力较强的位置。
+   */
+  const volatile = [];
   // 这一轮的话量预算：整轮多少字 + 分几条。性格和好感度都改不了它。
   const voice = voiceOf(opts.style);
 
@@ -309,7 +326,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   // ---------------- 时间（放最前面：它必须是"现在"的第一来源） ----------------
   {
     const tb = timeSection(timeText, scene?.text, opts.now);
-    if (tb) parts.push(tb);
+    if (tb) volatile.push(tb);
   }
 
   // ---------------- 记忆（放最前面：模型对开头最敏感） ----------------
@@ -333,7 +350,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   // 实时情绪（这几句的心情）。moodBlock 里写明了它只影响怎么说话。
   {
     const m = String(opts.mood || '').trim();
-    if (m) parts.push(m);
+    if (m) volatile.push(m);
   }
 
   // ---------------- 性格（人设里最要紧的一块） ----------------
@@ -389,7 +406,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   {
     const rel = String(opts.relation || '').trim();
     if (rel) {
-      parts.push(relationBlock(rel, { affection: typeof opts.affection === 'number' ? opts.affection : null }));
+      volatile.push(relationBlock(rel, { affection: typeof opts.affection === 'number' ? opts.affection : null }));
     }
   }
 
@@ -397,17 +414,17 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   // 用户在「+」面板里能看到这个数字，也能手动调，
   // 所以它必须是"真的在起作用"的东西，不能只是个摆设。
   if (typeof opts.affection === 'number') {
-    parts.push(affectionBlock(opts.affection, {
+    volatile.push(affectionBlock(opts.affection, {
       ta,
       baseline: typeof opts.affectionBase === 'number' ? opts.affectionBase : null,
     }));
   } else {
     // 没设过好感度（老用户）：退回按聊天量估算，行为保持不变
-    parts.push(intimacyStage(userProfile.msgCount || 0));
+    volatile.push(intimacyStage(userProfile.msgCount || 0));
     // 但这段说的是"熟悉程度"，可能跟关系边界打架（比如同事聊了很久），
     // 所以有设关系时补一句：身份和它的边界优先。
     if (String(opts.relation || '').trim()) {
-      parts.push(`注意：上面那段说的是你们的**熟悉程度**，跟【你们的关系定位】里的**身份**是两件事。
+      volatile.push(`注意：上面那段说的是你们的**熟悉程度**，跟【你们的关系定位】里的**身份**是两件事。
 身份和它列出的边界优先——就算聊得再久，也不会越过这个身份该有的分寸。`);
     }
   }
@@ -419,7 +436,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
     const regard = typeof opts.affection === 'number'
       ? opts.affection
       : ((userProfile.msgCount || 0) >= 50 ? 70 : 40);
-    parts.push(regardBlock(regard));
+    volatile.push(regardBlock(regard));
   }
 
   // ---------------- 性格 ----------------
@@ -455,7 +472,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   这一轮说多少字、分几条，**只看【这一轮说多少】那一块**（那是他自己调的设置）。
   性格决定的是"这 ${voice.total} 字听起来是什么味道"
 - 性格之外还有一层：**你们关系到哪一步了、好感度多少**
-  （见上面"你们的关系定位""你对他的好感度"那两块）。
+  （见提示词最后那两块：【你们的关系定位】【你对他的好感度】）。
   关系近、好感度高的时候，性格里那点"端着"要让位——**多打开心扉，多讲心里话**。
   但注意：那是**把同样多的话说得更真**，不是把话变长（长度照样看【这一轮说多少】）`);
 
@@ -538,7 +555,7 @@ ${renamed ? '' : `- 本名${CHARACTER.realName}只是你的本名，平时不用
   parts.push(`【他在等你的回答】（别拿动作糊弄过去）
 他问你的每一件事，**都要在台词里给出答案**。旁白只是"你怎么做的"，不是回答。
 
-- **问时间**（几点了 / 今天几号 / 星期几）→ 看上面【现在的时间】那块，
+- **问时间**（几点了 / 今天几号 / 星期几）→ 看提示词最后那块【现在的时间】，
   把时间**说出来**（"快九点半了""周三呀"）
 - **问你现在的状态**（在干嘛 / 吃了吗 / 睡了吗 / 忙不忙）→ 直接说你在干嘛
   （"在赶作业，头都大了"）
@@ -769,6 +786,14 @@ ${lazyNarrationBlock()}
 - 一轮对话里，至少有一两次是你主动抛话头，而不是只回答他
 - 他要是回得很短、明显没兴致，你可以换个话题，或者直接问"你怎么了"
 - 他很久没动静时，你也会先开口（"在忙吗""人呢"），而不是干等`);
+
+  // ---------------- 此刻（每轮都在变的那几块，统一放在最后） ----------------
+  // 见函数开头 volatile 的说明：它们放前面会把整段前缀缓存废掉。
+  // 标题这一行是**固定字符串**，所以它本身不破坏前缀。
+  if (volatile.length) {
+    parts.push(`【此刻的情况】（下面这些是**这一轮**的即时信息，以它们为准）
+${volatile.join('\n\n')}`);
+  }
 
   parts.push(`现在开始聊天。记住：你是个真实的人，有自己的生活和情绪，不是来解决问题的。`);
 

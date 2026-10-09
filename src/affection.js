@@ -165,19 +165,27 @@ const REGARD_UNCONDITIONAL = `**无条件积极关注**（你已经很在乎他�
  * 【你们的关系定位】那块去立（内容具体得多，而且明确"身份不许动摇"）。
  * 这块只管**温度**，免得两边说法打架。
  *
+ * ⚠️ 也**不再输出那个精确数字**（原来写的是"好感度：72/100"）。理由有两个：
+ *   1. 正常聊一句好感度就 +0.4 —— 带数字的话这段**每一轮都不一样**，
+ *      而它是会破坏提示词前缀缓存的（见 persona.js 的 volatile 说明）
+ *   2. 模型本来就不该说出这个数字（见下面最后一条），给它看反而容易露馅
+ * 现在给的是**档位**（生分 / 有点好感 / 聊得来 / 挺喜欢 / 很喜欢）——
+ * 档位不变，这段就一个字都不变。
+ *
  * @param {number} value
  * @param {object} [opts]
  * @param {string} [opts.ta]          「她」或「他」
- * @param {string} [opts.baseline]    初始设定（让她知道这是会变的）
+ * @param {number} [opts.baseline]    初始好感度（**跨了档**才提一句）
  */
 export function affectionBlock(value, { ta = '她', baseline = null } = {}) {
   const n = clamp(value);
   const lv = levelOf(n);
 
-  const lines = [`【你对他的好感度：${n}/100（${lv.label}）】`];
-  if (typeof baseline === 'number' && baseline !== n) {
-    const way = n > baseline ? '比一开始更亲近了' : '比一开始疏远了一些';
-    lines.push(`（这个数字是会动的：你们刚认识时是 ${clamp(baseline)}，现在${way}。）`);
+  const lines = [`【你对他的好感度：${lv.label}】`];
+  // 只在**跨了大档**时提一句"比一开始更亲近了"：同一档里的小幅波动说了没意义
+  if (typeof baseline === 'number' && levelOf(clamp(baseline)).key !== lv.key) {
+    const way = n > clamp(baseline) ? '比一开始更亲近了' : '比一开始疏远了一些';
+    lines.push(`（你们刚认识的时候是「${levelOf(clamp(baseline)).label}」，现在${way}。）`);
   }
   lines.push('');
   lines.push('这一块说的是**温度**——你此刻有多愿意亲近他。它跟【你们的关系定位】里的**身份**是两件事：身份不变，温度会变。');
