@@ -72,7 +72,7 @@ import {
   mergeFacts, todayTimeline,
 } from './memory-io.js';
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
-import { splitNarration, recentNarrations, narrationVaryBlock } from './narration.js';
+import { splitNarration, recentNarrations, narrationVaryBlock, isLazyNarration } from './narration.js';
 // 她的回复 → 待上屏的条目（连发拆分 / 行首标签 / 角色名前缀）。纯函数，可单测。
 import { replyItems as chunkItems } from './chunk.js';
 import { parseThoughtBlock, thinkPause, recentThoughts, thoughtVaryBlock } from './thought.js';
@@ -790,9 +790,7 @@ const herInitial = () => (herName().slice(-1) || CHARACTER.realName.slice(-1));
 const myInitial = () => (state.config.userName?.trim()?.[0]) || '我';
 
 // ---------------------------------------------------------------- 连发拆分
-//
-// "她这段回复该拆成几条、行首那个【标签】怎么剥、角色名前缀怎么去"
-// 这一整套解析都在 **src/chunk.js**（纯函数），这里只把当前环境的东西喂进去。
+// 解析那一整套（连发拆分 / 行首标签 / 角色名前缀）在 **src/chunk.js**，这里只喂环境。
 
 /** 她的回复（文本）→ 待发出的条目（台词 / 旁白各成一条） */
 const replyItems = (text, maxBurst) => chunkItems(splitNarration(text), {
@@ -1515,8 +1513,8 @@ async function askForWords({ systemPrompt, history, narration, signal }) {
     {
       role: 'user',
       content: '（系统提示：你刚才只发了一个动作，什么都没说 —— 他现在在等你的回答。'
-        + '请直接说你要说的话，1-2 条，把该回答的答上；'
-        + '不要再重复那个动作，也不要再写括号旁白。'
+        + '说一句就行，**哪怕只有两三个字**（"哈哈""在的""嗯嗯""刚看到"）。'
+        + '不要再重复那个动作，也不要再写括号旁白 —— 一个括号都不要写。'
         + '另外别忘了最前面那块 [[思考]] —— 你对下一句话的心里话。）',
     },
   ];
@@ -1614,7 +1612,7 @@ const hitsRepeat = (text, list) => (Array.isArray(list) ? list : [])
  *
  * 用户实测："哪怕我提示说不要再说这个了、我已经记得了，过一两轮依旧会反复强调。"
  * 提示词里写了"别再提"（repeatBlock），但那是**软约束** —— 上下文一长就冲淡了。
- * 所以这里事后检查：这一轮真出现了那几个片段就重新请求一次，并且**点名**说清。
+ * 所以这里事后检查：真出现了那几个片段就重新请求一次，并且**点名**说清。
  * 规矩同"只发旁白就补一次"：**一轮最多重写一次**，补不回来就认了（绝不循环）。
  *
  * @returns {Promise<string>} 重写后的文本（失败返回空串）
@@ -1825,15 +1823,14 @@ async function respond() {
     // 从"收到他那句话"到"回复生成完"的真实耗时（毫秒）→ 界面上显示成"思考 1.4 秒"
     let thinkMs = Date.now() - t0;
 
-    // 她这一轮反复提的那件事（最近几轮老在说的，台词 + 内心都算）
+    // 她这一轮反复提的那件事（台词 + 内心都算）
     const repeats = repeatedTopics(state.messages);
 
     // 这一轮已经补过一次请求了吗 —— **最多补一次**，几个兜底不能叠着花好几次钱
     let repaired = false;
 
-    // ⭐ 又说了一遍那件反复提的事 → 让她重说（用户："哪怕我说不要再说这个了，
-    //    过一两轮依旧会反复强调"）。提示词里已经写了"别再提"，但那是软约束，
-    //    所以这里做一次事后检查 + 点名重写。放在最前面，因为这是最影响观感的一条。
+    // ⭐ 又说了一遍那件反复提的事 → 让她重说。提示词里写过"别再提"，但那是软约束
+    //   （用户："哪怕我说不要再说这个了，过一两轮依旧会反复强调"），所以这里事后检查 + 点名重写。
     if (parts.length && repeats.length && !parts.every((it) => it.narr)
         && hitsRepeat(parts.map((it) => it.content).join('\n'), repeats)) {
       const again = await askAgain({
@@ -1852,8 +1849,7 @@ async function respond() {
       }
     }
 
-    // 整轮都是旁白（"（抬头看墙上的钟）"就没了）→ 把欠的那句话要回来，
-    // 而不是让他再问一遍。见 askForWords 的说明。
+    // 整轮都是旁白 → 把欠的那句话要回来，而不是让他再问一遍（见 askForWords）
     if (parts.length && parts.every((it) => it.narr)) {
       const r = await askForWords({
         systemPrompt,
@@ -1861,7 +1857,12 @@ async function respond() {
         narration: parts.map((it) => it.content).join('；'),
         signal: ctrl.signal,
       });
-      parts = [...parts, ...r.words.map((content) => ({ content, narr: false }))];
+      const said = r.words.map((content) => ({ content, narr: false }));
+      // ⚠️ 补回来**还是只有动作**时（用户："我说完一句，就笑，然后就没下文了"）：
+      //    空动作（"（笑）"）就别发了，宁可走下面那句兜底台词；
+      //    有画面的（"（举起手里的奶茶）"）留着，他至少看得见画面。
+      const onlyLazy = parts.every((it) => isLazyNarration(it.content));
+      parts = said.length ? [...parts, ...said] : (onlyLazy ? [] : parts);
       // 同一次请求把"内心"也要回来了（分两次太贵）
       if (!innerThought && r.thought) innerThought = r.thought;
       repaired = true;
@@ -1869,7 +1870,6 @@ async function respond() {
     }
 
     // 内心：没写 → 补一次；写了、但又在想那件反复想的事 → 也要重来一次
-    //（用户："反复强调事情不止是在对话里，在思考内容也有所体现"）
     const thoughtStuck = !!innerThought && repeats.length && hitsRepeat(innerThought, repeats);
     if (!repaired && state.config.showThink !== false && parts.length
         && (!innerThought || thoughtStuck)) {

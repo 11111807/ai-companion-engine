@@ -340,6 +340,21 @@ console.log('\n[7] narration.js —— 把"最近写过的旁白"捞回去提醒
     && !narration.isLazyNarration('低头去拽衣角'));
   check('空值不炸', !narration.isLazyNarration('') && !narration.isLazyNarration(null));
 
+  // ⚠️ 用户点名的那个："旁白老是笑啊，我说完一句，就笑，然后就没下文了。"
+  //    原来的黑名单只收了"笑了笑"这类**词组**，模型最常写的**裸"（笑）"**一直漏过去。
+  const justSmile = ['笑', '笑了笑', '笑着说', '微微一笑', '笑了一下', '轻笑', '勾了勾嘴角'];
+  check('⭐ 光"笑"要算空动作（原来漏的就是这个）',
+    justSmile.every((t) => narration.isLazyNarration(t)),
+    justSmile.filter((t) => !narration.isLazyNarration(t)).join('、') || '全中');
+  const realSmile = ['笑出声', '笑着摇了摇头', '一边打字一边笑', '把脸埋在枕头里笑了一下', '笑到不行'];
+  check('⭐ 但有画面 / 有声音的"笑"不算（别误伤）',
+    realSmile.every((t) => !narration.isLazyNarration(t)),
+    realSmile.filter((t) => narration.isLazyNarration(t)).join('、') || '全过');
+  check('提示词里点名了"笑"，并给了正反例',
+    /最常犯的是"笑"/.test(narration.lazyNarrationBlock())
+    && /（笑）/.test(narration.lazyNarrationBlock())
+    && /一边打字一边笑/.test(narration.lazyNarrationBlock()));
+
   const lazyBlock = narration.lazyNarrationBlock();
   check('⭐ 提示词块里有反例（顿住）和正例（抬头看钟）',
     /（顿住）/.test(lazyBlock) && /抬头看了一眼墙上的钟/.test(lazyBlock));

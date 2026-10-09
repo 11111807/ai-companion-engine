@@ -504,6 +504,32 @@ console.log('\n[17] 正常回复不会多花一次请求 ...');
 }
 
 // ---------------------------------------------------------------- 收尾
+// ---------------------------------------------------------------- 17) 光笑
+console.log('\n[17] 她只会"（笑）"的时候，不能就这么算了（用户点名的那条）...');
+{
+  // 用户原话："旁白老是笑啊，我说完一句，就笑，然后就没下文了，也不接话。"
+  // 两层都要堵：①"笑"要算空动作（原来的黑名单只收了"笑了笑"这种词组，
+  // 模型最常写的裸"（笑）"一直漏过去）；②补一次之后还是空的，那条孤零零的
+  // 旁白就别发了 —— 至少让这一轮有个回应。
+  const app = mkApp({ replies: ['（笑）', '（又笑了笑）'] });
+  await app.send('在吗');
+
+  const rows = app.$$('#messages .wx-row').map((r) => r.textContent.trim());
+  const tail = rows.slice(-3);
+  check('⭐ 不显示孤零零的一条"（笑）"', !tail.some((t) => /^笑$/.test(t.replace(/[（）()]/g, ''))),
+    tail.join(' | '));
+  check('⭐ 至少给了一句台词（走兜底，别让他干等）',
+    tail.some((t) => /嗯/.test(t)), tail.join(' | '));
+  check('补请求只发一次（没有循环）', app.requests.length === 2, String(app.requests.length));
+
+  // 有画面的旁白仍然要留着（补不回来台词时也别把它扔掉）
+  const app2 = mkApp({ replies: ['（举起手里的奶茶）', '（又把杯子放回桌上）'] });
+  await app2.send('在吗');
+  const rows2 = app2.$$('#messages .wx-row').map((r) => r.textContent.trim());
+  check('有画面的旁白不会被丢掉', rows2.some((t) => /举起手里的奶茶/.test(t)), rows2.slice(-3).join(' | '));
+}
+
+// ---------------------------------------------------------------- 收尾
 for (const w of windows) { try { w.close(); } catch {} }
 console.log(`\n=== 结果 ===\n  ${pass} 项通过, ${fail} 项失败`);
 process.exit(fail ? 1 : 0);
