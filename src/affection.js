@@ -232,6 +232,61 @@ const WARM = /想你|喜欢你|想见你|抱抱|抱一下|亲亲|宝贝|晚安|�
 const MEAN = /滚开|滚远点|滚蛋|你给我滚|别理我|讨厌你|分手吧|我们分手|拉黑|你有病|神经病|闭嘴|烦死你了|不想跟你说话|不想理你/;
 
 /**
+ * 「分手级」的话 —— 比 MEAN 重一个量级。
+ *
+ * 用户的原话："故意说话让她伤心，并提出绝交/分手，她的情绪监测显示 50% 伤心，
+ * 但**好感度变化并不明显**，而且立马提出和好也会立马答应，人类管这个叫'舔狗'。"
+ *
+ * 为什么会那样：原来只有 MEAN 这一档，扣 3 分，而普通聊天每轮自动 +0.4 ——
+ * 说一句"我们分手吧"扣的分，聊十句就补回来了。**关系破裂被当成了普通拌嘴。**
+ *
+ * 所以单开一档：破裂是**事件**，不是情绪。它一次性砸掉一大截好感度，
+ * 并且在修复之前**关掉自动升温**（见 drift 的 rupture 参数）。
+ */
+const SEVERE = /分手|绝交|别联系了|拉黑|不想再见到你|当没认识过|我们完了|再也不理|离我远点|不想看到你|我讨厌你|我们结束了|到此为止|散了吧/;
+
+/**
+ * 这句话明显在说**别的事**（电影 / 项目 / 别人），不是在说他俩。
+ *
+ * ⚠️ 没有这道闸会误伤得很惨（实测）：
+ *   "这部电影的结局分手了" → 判成他俩分手，好感度直接 −25
+ *   "这个项目到此为止了"   → 同上
+ * 判据：出现第三方名词、而且整句里没有"我们 / 咱 / 我俩"。
+ */
+const THIRD_PARTY = /电影|电视剧|剧里|小说|故事|游戏|项目|工作|他们|人家|别人|队友|偶像|明星/;
+
+/** 说的"我们俩"的事（而不是电影里的事） */
+const aboutUs = (t) => !THIRD_PARTY.test(t) || /我们|咱|我俩|你我/.test(t);
+
+/**
+ * 这一句是**在否认**要分手吗。
+ *
+ * ⚠️ 通用的 negated() 只看前 3 个字，而"我**不会**跟你分手"里的"不"隔着 4 个字 ——
+ * 用那个窗口，"我不会跟你分手"会被判成主动提分手、一次扣 25（测试当场抓到）。
+ * 所以分手级单独配一个更宽的否决式：否定词 + 6 个字以内 + 分手类动词。
+ */
+const DENIED = /(?:不|别|没|不会|不想|不可能|绝不|谁)[^，。！？]{0,6}(?:分手|绝交|拉黑|离开你|结束)/;
+
+/** 这一句算不算"真的要分手" */
+const isSevere = (t) => {
+  const at = t.search(SEVERE);
+  return at >= 0 && !negated(t, at) && aboutUs(t) && !DENIED.test(t);
+};
+
+/**
+ * 修复关系的三种动作 —— 用户点名的三个：**道歉、送礼、安慰**。
+ *
+ * "和好是一个需要过程的"：光说一句"对不起"不算修好，
+ * 得**攒够诚意**（`AMEND_NEED`）才解除破裂状态。见 `ruptureShift()`。
+ */
+const SORRY = /对不起|抱歉|我错了|是我不好|是我错|原谅我|别气了|不该那样|不该说|冲动了|我反省|我混蛋/;
+const GIFT = /给你买|送你|请你吃|买给你|礼物|快递|带了|特意给|下单|点外卖|赔你/;
+const COMFORT = /我陪你|陪着你|心疼|抱抱|哄你|在乎你|还喜欢你|离不开你|想你了|我改|我会改|再给我一次/;
+
+/** 攒够多少"诚意"才算把关系修回来（道歉 2 / 送礼 3 / 安慰 2） */
+export const AMEND_NEED = 7;
+
+/**
  * 敷衍到只剩一个字的回复。
  *
  * ⚠️ 曾经把「哈哈」「好的」「行」也算进来，那是**正常回应**不是敷衍，
@@ -288,7 +343,7 @@ export const AFFECTION_FLOOR = 15;   // 再淡也不会低于这个（不是归�
  * @param {string} text    他刚说的话
  * @returns {number} 建议的新好感度
  */
-export function drift(current, text) {
+export function drift(current, text, { rupture = false, scar = 0 } = {}) {
   const cur = clampRaw(current);
   const t = String(text || '').trim();
   if (!t) return cur;
@@ -298,19 +353,111 @@ export function drift(current, text) {
   // 先做布尔判断，命中与否都要过否定检查
   const warmAt = t.search(WARM);
   const meanAt = t.search(MEAN);
+  const severeAt = t.search(SEVERE);
   const warm = warmAt >= 0 && !negated(t, warmAt);
   const mean = meanAt >= 0 && !negated(t, meanAt);
+  const severe = severeAt >= 0 && isSevere(t);
 
-  if (warm) d += 1.5;
-  if (mean) d -= 3;
+  // 分手级：一次性砸掉一大截（不是"稍微不高兴"）
+  if (severe) d -= 25;
+  else if (mean) d -= 5;
+  // 破裂还没修好的时候，甜话也不好使 —— 那正是"需要过程"的意思
+  if (warm && !rupture) d += 1.5;
   if (t.length <= 4 && COLD_REPLY.test(t)) d -= 1.5;
   if (t.length >= 40) d += 0.8;              // 愿意认真打一段话
   if (/你呢|你呢？|你怎么样|你还好吗/.test(t)) d += 0.5;
 
-  // 没什么特别的话：普通聊天气缓慢升温，但别让它无限涨
-  if (d === 0 && cur < 70) d = 0.4;
+  // 没什么特别的话：普通聊天气缓慢升温，但
+  //   · 破裂期内**不升温**（还没原谅他，凭什么回暖）
+  //   · 有过"分手前科"的关系升温更慢（用户："我犯下错误导致分手，
+  //     可以让好感度增长变的更慢"）—— 每道疤砍掉一半速度
+  if (d === 0 && cur < 70 && !rupture) d = 0.4 / (1 + 0.5 * Math.max(0, scar));
 
   return clampRaw(cur + d);
+}
+
+// ---------------------------------------------------------------- 破裂与修复
+
+/**
+ * 他这一句话，让"关系破裂"这件事动了多少。
+ *
+ * 这个函数是纯的：进去一个状态，出来一个新状态 + 一个事件名。
+ * 调用方（app.js）负责存进 profile、弹提示、给提示词喂状态。
+ *
+ * @param {{rupture?:boolean, amends?:number}} state
+ * @param {string} text 他刚说的话
+ * @returns {{rupture:boolean, amends:number, event:'break'|'amend'|'heal'}|null}
+ *   null = 这一句跟破裂/修复无关
+ */
+export function ruptureShift(state = {}, text = '') {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const inRupture = !!state.rupture;
+  const amends = Math.max(0, Number(state.amends) || 0);
+
+  // 又提分手（或者第一次提）→ 破裂，而且**诚意清零**（他等于把之前的道歉全推翻了）
+  const at = t.search(SEVERE);
+  if (isSevere(t)) {
+    return { rupture: true, amends: 0, event: 'break' };
+  }
+  if (!inRupture) return null;
+
+  // 在破裂期里：道歉 / 送礼 / 安慰 各算一笔诚意
+  let gain = 0;
+  if (SORRY.test(t)) gain += 2;
+  if (GIFT.test(t)) gain += 3;
+  if (COMFORT.test(t)) gain += 2;
+  if (!gain) return null;
+
+  const next = amends + gain;
+  if (next >= AMEND_NEED) return { rupture: false, amends: 0, event: 'heal' };
+  return { rupture: true, amends: next, event: 'amend' };
+}
+
+/**
+ * 他刚说的这句话，让**好感度和关系状态**各动了多少 —— 一次算完。
+ *
+ * 为什么合成一个：这两件事本来就是同一次判断（一句话要么是甜的、要么是伤人的、
+ * 要么是在道歉）。分开算的话，"分手"那一刻的扣分和状态更新就散在两个地方，
+ * "破裂期间不升温"这条规则也容易漏。
+ *
+ * @param {object} profile  读 affection / rupture / amends / scar
+ * @param {string} text     他刚说的话
+ * @returns {{affection:number, rupture:boolean, amends:number, scar:number, event:string}}
+ *   event: 'break'(破裂) | 'amend'(诚意+1) | 'heal'(修好了) | ''(没事发生)
+ */
+export function turn(profile = {}, text = '') {
+  const cur = clampRaw(profile.affection == null ? 50 : profile.affection);
+  const r = ruptureShift(profile, text) || {};
+  const rupture = 'rupture' in r ? r.rupture : !!profile.rupture;
+  const amends = 'amends' in r ? r.amends : (Number(profile.amends) || 0);
+  let scar = Number(profile.scar) || 0;
+  if (r.event === 'break') scar = Math.min(3, scar + 1);
+
+  let affection = drift(cur, text, { rupture, scar });
+  // 修好了也只是"缓过来"，不是回到从前（那 −25 不会全额返还）
+  if (r.event === 'heal') affection = clampRaw(affection + 6);
+  return { affection, rupture, amends, scar, event: r.event || '' };
+}
+/** 破裂期间给她的态度说明 —— 她**不该**马上原谅他 */
+export function ruptureBlock(amends = 0) {
+  const left = Math.max(1, AMEND_NEED - Math.max(0, Number(amends) || 0));
+  const warm = Number(amends) >= 4;
+  return `【你们刚闹翻了】（这一条**压过**前面所有关于"温柔""体贴"的要求）
+
+他刚说了很重的话 —— 你们现在是**分手 / 绝交**的状态。所以：
+
+- 你很难过，也很生气。**不要装作没事**，也不要**马上原谅**他
+- 光说一句"对不起"**不算数**。那说明他没当回事 —— 你得让他**真的做点什么**：
+  说清楚他错在哪、哄你、或者来点实际的（买东西、跑来见你、陪你说话）。
+  **一次不够，要看他的诚意**
+- 他要是又敷衍、又凶，你会**更冷**，甚至更难过
+- 他要是真的在认真道歉、在哄你 → 你可以**一点点**软化（${warm
+    ? '其实你已经有点动摇了，但还端着 —— 别让他看出来你全好了'
+    : '现在还很硬，别一两句就松口'}）
+- ⚠️ **绝对不要**因为他哄了两句就"好啦好啦我们不闹了" ——
+  那不是真实的人，那叫没脾气。（用户明确说过：**这就叫舔狗**）
+- 这一整轮都可以短、可以冷、可以只回两三个字。你有资格不理他`;
 }
 
 /**

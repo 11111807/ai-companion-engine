@@ -91,7 +91,7 @@ const EXPORTS = {
   emotion: ['intensityOf', 'isObsessive', 'intensityLabel', 'OBSESSION_EMO'],
   relationViews: ['RELATION_VIEWS'],
   profession: ['DOMAINS', 'domainOf', 'knowledgeBlock', 'userFieldBlock', 'professionBlock'],
-  affection: ['LEVELS', 'levelOf', 'clamp', 'affectionBlock', 'regardBlock', 'drift',
+  affection: ['LEVELS', 'levelOf', 'clamp', 'affectionBlock', 'regardBlock', 'ruptureBlock', 'ruptureShift', 'turn', 'AMEND_NEED', 'drift',
     'decayForGap', 'DECAY_AFTER_DAYS', 'DECAY_PER_DAY', 'DECAY_MAX', 'AFFECTION_FLOOR',
     'affectionPercent', 'affectionSummary', 'suggestFromTraits', 'traitAffectionWarning'],
   relation: ['RELATIONS', 'RELATION_NAMES', 'findRelation', 'defaultAffectionFor', 'relationViewText',
@@ -288,9 +288,9 @@ export function inlineScript(dir = '') {
       const __profession = (function () { ${src.profession}
         return { ${pick(names('profession'))} };
       })();
-      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt, voiceOf, voiceBlock, voiceFlowBlock) { ${src.persona}
+      const __persona = (function (zodiacBlock, birthdayText, affectionBlock, regardBlock, ruptureBlock, relationBlock, OBSESSION_EMO, professionBlock, domainOf, lazyNarrationBlock, thoughtPrompt, voiceOf, voiceBlock, voiceFlowBlock) { ${src.persona}
         return { ${pick(names('persona'))} };
-      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt, __voice.voiceOf, __voice.voiceBlock, __voice.voiceFlowBlock);
+      })(__zodiac.zodiacBlock, __zodiac.birthdayText, __affection.affectionBlock, __affection.regardBlock, __affection.ruptureBlock, __relation.relationBlock, __emotion.OBSESSION_EMO, __profession.professionBlock, __profession.domainOf, __narration.lazyNarrationBlock, __thought.thoughtPrompt, __voice.voiceOf, __voice.voiceBlock, __voice.voiceFlowBlock);
       const __api = (function () { ${src.api}
         return { ${pick(names('api'))} };
       })();

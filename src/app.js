@@ -28,6 +28,8 @@ import {
   levelOf, clamp as clampAffection, drift as affectionDrift,
   decayForGap, affectionPercent, affectionSummary,
   suggestFromTraits, traitAffectionWarning,
+  // 破裂（分手/绝交）与修复：破裂是一次**事件**，要有代价、要能修、但修不回原样
+  ruptureShift, ruptureBlock, turn as affectionTurn, AMEND_NEED,
 } from './affection.js';
 import {
   RELATIONS, RELATION_NAMES, findRelation, defaultAffectionFor, relationViewText,
@@ -294,6 +296,10 @@ const state = {
     msgCount: 0,     // 累计消息数（用于亲密度估算）
     affection: null,     // 好感度 0..100。null = 没设过（老用户），退回按聊天量估算
     affectionBase: null, // 初始好感度，用来告诉她"这个数字是会动的"
+    // 破裂与修复（见 affection.js 的 ruptureShift）：rupture=正在闹翻，amends=攒的诚意，scar=分手前科
+    rupture: false,
+    amends: 0,
+    scar: 0,
   },
   generating: false,
   abort: null,
@@ -1215,7 +1221,7 @@ async function send() {
 
   if (text) {
     // 好感度跟着他这句话的冷暖动一点点（见 affection.js 的 drift）
-    bumpAffection(text);
+    applyTurn(text);   // 好感度 + 破裂/修复，一次算完（见 affection.js 的 turn）
 
     // 他这句话是不是在把关系定下来（表白 / 求婚 / 分手）？
     // 设置里的关系要是还停在旧的，下一轮提示词就会把她拉回去 —— 所以这里要提示用户改。
@@ -1336,22 +1342,37 @@ function dismissRelationTip() {
   toast('好，那就不提醒了（随时可以在 + 面板里自己改）', 2400);
 }
 
+/** 破裂那三种结果各说一句人话（别弹"好感度 −25"这种系统腔） */
+const RUPTURE_TIP = {
+  break: '她这次是真的伤心了 —— 光说一句"对不起"是不够的',
+  amend: '她还在生气，不过语气缓和了一点',
+  heal: '她好像没那么生气了',
+};
+
 /**
- * 按他这一句话微调好感度。
+ * 他刚说的这句话，把**好感度和关系状态**一起更新掉。
  *
- * 只在已经设过好感度时生效（老用户是 null，保持"按聊天量估算"的老行为）。
- * 涨幅刻意很小 —— 一句话不该让关系大变，主要是别让它像个死数字。
+ * 为什么合成一个（原来是 bumpAffection + applyRupture 两个函数）：
+ *   这两件事本来就是同一次判断 —— 一句话要么是甜的、要么是伤人的、要么是在道歉。
+ *   分开写的话，"分手"那一刻的扣分和状态更新散在两个地方，而且一次用户消息
+ *   要 saveProfile 两遍。现在算法全在 affection.js 的 turn() 里，这里只落库 + 提示。
+ *
+ * 用户的原话："好感度变化并不明显，而且立马提出和好也会立马答应，
+ * 人类管这个叫'舔狗'。" —— 所以破裂是**事件**：一次 −25、修复前不升温、
+ * 留一道疤让以后升温砍半、想修好得攒够诚意（道歉 / 送礼 / 安慰）。
  */
-function bumpAffection(text) {
+function applyTurn(text) {
   if (state.profile.affection == null) return;
-  const before = state.profile.affection;
-  const after = affectionDrift(before, text);
-  if (after !== before) {
-    state.profile.affection = after;
-    state.profile.affectionAt = now();
-    saveProfile();
-    renderAffection();
-  }
+  const p = state.profile;
+  const r = affectionTurn(p, text);
+  const dirty = r.affection !== p.affection || r.rupture !== !!p.rupture || !!r.event;
+  if (!dirty) return;
+  Object.assign(p, {
+    affection: r.affection, rupture: r.rupture, amends: r.amends, scar: r.scar, affectionAt: now(),
+  });
+  if (r.event) toast(RUPTURE_TIP[r.event], 3200);
+  saveProfile();
+  renderAffection();
 }
 
 /**
@@ -1554,6 +1575,8 @@ async function respond() {
       mood: moodBlock(currentMood()),
       affection: affection(),
       affectionBase: state.profile.affectionBase,
+      rupture: !!state.profile.rupture,   // 闹翻了的话，态度要跟着变（见 ruptureBlock）
+      amends: Number(state.profile.amends) || 0,
       relation: state.config.herRelation,
     }),
     recallBlock(query, history.length),
@@ -3674,6 +3697,8 @@ async function speakUp(reason) {
         mood: moodBlock(currentMood()),
         affection: affection(),
         affectionBase: state.profile.affectionBase,
+      rupture: !!state.profile.rupture,   // 闹翻了的话，态度要跟着变（见 ruptureBlock）
+      amends: Number(state.profile.amends) || 0,
         relation: state.config.herRelation,
       }),
       // 主动开口那一轮她也会写旁白，所以这条同样要提醒（别复读上一个动作）
