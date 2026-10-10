@@ -1,38 +1,3 @@
-/**
- * 预置人设 —— 加好友时可以直接挑的那些"已经设置好"的 AI 人格。
- *
- * 为什么要有：空白新建一个人格，用户得自己想名字、年龄、职业、性格、关系……
- * 门槛太高。这里给一批**互相区分度足够大**的预设，点一下就能开始聊；
- * 想改就在人设页里改（预设只是"初始值"，不是锁死的模板）。
- *
- * 写预设的几条要求（不然会做成一堆"换了个名字的同一个人"）：
- *   1. **性格不能只是形容词堆砌** —— 要能推出一条具体的行为差异
- *      （比如"毒舌"要落到"先挑刺再给方案"，而不是"说话很损"）
- *   2. **关系要有边界** —— 每个预设带一个默认关系，提示词那边会据此立身份
- *   3. **职业要落在真实的知识域里** —— profession.js 认得出（认不出也行，
- *      会走"按年龄兜底"，但那就是白给了）
- *   4. **开场白要像微信里真会收到的话**，别写成产品介绍
- *
- * 好感度那一栏按"关系基准 + 性格偏移"给个合理的入门值，
- * 具体算法在 affection.js 的 suggestFromTraits()，这里只给关系。
- */
-
-/**
- * @typedef {object} PersonaPreset
- * @property {string} id
- * @property {string} name      她/他叫什么
- * @property {string} emoji     头像 emoji
- * @property {string} gender    'f' | 'm'
- * @property {number} age
- * @property {string} job       职业/身份（profession.js 会据此给知识储备）
- * @property {string} relation  和你的关系（relation.js 里的 15 种之一）
- * @property {string[]} traits  性格标签（persona.js 的 TRAIT_PRESETS 里的）
- * @property {string} note      再补一句性格（提示词里会原样出现）
- * @property {string} place     初始环境（"她现在在哪"）
- * @property {string} opening   开场白（用 \n\n 分成多条）
- * @property {string} blurb     加好友页上给他看的一句话介绍
- */
-
 /** @type {PersonaPreset[]} */
 export const PERSONA_PRESETS = [
   {
@@ -152,10 +117,6 @@ export const PERSONA_PRESETS = [
 /** 按 id 找预设 */
 export const findPreset = (id) => PERSONA_PRESETS.find((p) => p.id === String(id)) || null;
 
-/**
- * 预设 → 人设页要填的那一份表单值。
- * （字段名跟人设页的输入框一一对应，见 app.js 的 applyPersona）
- */
 export function presetToForm(preset) {
   if (!preset) return null;
   return {

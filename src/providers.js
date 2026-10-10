@@ -1,13 +1,3 @@
-/**
- * 服务商预置
- *
- * 目的：让用户不用自己去查「接口地址是哪、模型名怎么写」。
- * 选一个服务商 → 只填 key → 就能用。
- *
- * ⚠️ 这些信息（端点地址、模型名、免费政策）随时可能变，以各家官网为准。
- * 如果某个用不了，可以直接在设置里手动改地址和模型名。
- */
-
 export const PROVIDERS = [
   {
     id: 'deepseek',
@@ -109,7 +99,7 @@ export const PROVIDERS = [
     cost: '免费 · 离线',
     local: true,
     noKey: true,
-    native: true,     // 只在 APK 里出现
+    native: true,
   },
 ];
 
@@ -128,7 +118,7 @@ export function detectProvider(endpoint, model) {
     if (p.id === 'custom') continue;
     if (p.endpoint && endpoint && p.endpoint === endpoint) return p.id;
   }
-  // 只靠模型名兜底
+
   for (const p of PROVIDERS) {
     if (p.models?.includes(model)) return p.id;
   }

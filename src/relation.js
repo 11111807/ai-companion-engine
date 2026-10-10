@@ -1,25 +1,3 @@
-/**
- * 关系定位
- *
- * 用户反馈："预设的关系和实际关联度不够高，如果我选择了这种关系或者发展到了
- * 这种关系，我需要她完全认同自己的定位。"
- *
- * 问题出在哪：原来「关系」在提示词里只有一行字 ——「你们的关系：同事。」——
- * 模型基本会忽略它，照样按自己那套演。而且它跟好感度是打架的：
- * 好感度低时写"客气、有距离"，可关系明明写着"恋人"，两句话互相矛盾。
- *
- * 所以这里把关系拆成**两个正交的轴**：
- *   关系 = 身份 / 框架（我是谁、我们是什么、能做什么、不能做什么）
- *   好感度 = 温度（热不热、主动不主动）
- * 身份写死、不许动摇；温度可以变。两者必须同时成立。
- *
- * 每个关系给的东西：怎么称呼他、对外怎么说、这个身份**本来就会**做什么、
- * **不会**做什么、日常底色，以及这个关系大致的"温度基准"。
- *
- * 「她认为你们是什么关系」那句文案单独放在 relation-views.js —— 15 个关系
- * × 5 个好感度档位，各写各的（通用模板套到"夫妻"上会读出"她在等你先开口"）。
- */
-
 import { levelOf } from './affection.js';
 import { RELATION_VIEWS } from './relation-views.js';
 
@@ -314,10 +292,6 @@ export const RELATIONS = [
 /** 界面上给用户点的关系标签（顺序就是显示顺序） */
 export const RELATION_NAMES = RELATIONS.map((r) => r.name);
 
-/**
- * 把用户填的文本对上某个预设。
- * 认不出来就返回 null —— 那时走"通用定位"那套，照样要求她认同这个身份。
- */
 export function findRelation(text) {
   const s = String(text || '').trim();
   if (!s) return null;
@@ -331,13 +305,6 @@ export function defaultAffectionFor(text) {
   return findRelation(text)?.affection ?? 45;
 }
 
-/**
- * 「她认为你们的关系是怎样的」——一句话。
- *
- * 每个关系、每个好感度档位都有自己的说法（见 relation-views.js）：
- * 通用的 5 句模板套到"夫妻"上会很怪 —— 最高档会读出"她在等你先开口"，
- * 可你们已经结婚了。用户自己填的关系没有专属文案，才退回通用模板。
- */
 export function relationViewText(value, relation) {
   const lv = levelOf(value);
   const r = findRelation(relation);
@@ -346,14 +313,6 @@ export function relationViewText(value, relation) {
   return lv.view(String(relation || '').trim() || '刚认识的人');
 }
 
-/**
- * 关系提示词。
- *
- * @param {string} relation 用户设的关系（"同事""恋人"……也可能是自己写的）
- * @param {object} [opts]
- * @param {number} [opts.affection] 当前好感度（有的话会补一段"身份和温度是两回事"）
- * @param {string} [opts.ta] 「她」或「他」
- */
 export function relationBlock(relation, { affection = null } = {}) {
   const raw = String(relation || '').trim();
   const r = findRelation(raw);
@@ -396,7 +355,6 @@ export function relationBlock(relation, { affection = null } = {}) {
 - 他要是把关系往前推了一步（表白、说开了、确认了），你答应了就当成既成事实，
   之后一直按新身份来；但他只是开玩笑、没明确确认时，别自己加戏`);
 
-  // 身份（框架）和温度（好感度）是两回事，必须同时成立
   if (typeof affection === 'number') {
     lines.push('');
     lines.push(`注意：【你对他的好感度】那一块说的是**温度**，这里说的是**身份**，两件事要同时成立。
@@ -407,10 +365,6 @@ export function relationBlock(relation, { affection = null } = {}) {
   return lines.join('\n');
 }
 
-/**
- * 关系和好感度看起来矛不矛盾？矛盾就返回一句提醒（不阻止，只是提示）。
- * @returns {string} 没矛盾时返回空串
- */
 export function relationAffectionWarning(relation, value) {
   const r = findRelation(relation);
   if (!r) return '';
@@ -430,12 +384,6 @@ export function relationAffectionWarning(relation, value) {
   return '';
 }
 
-// ---------------------------------------------------------------- 关系变了？
-
-/**
- * 结婚/求婚这类说法 → 直接推到「夫妻」
- * ⚠️ 要放在 together 前面判断（"嫁给我"里没有"在一起"，但"我们结婚吧"也没有）
- */
 const MARRY = /嫁给我|我们结婚吧|做我老婆|做我老公|当我老婆|当我老公/;
 
 /** 把关系往前推一步的说法 */
@@ -444,19 +392,6 @@ const TOGETHER = /做我女朋友|做我男朋友|当我女朋友|当我男朋�
 /** 把关系往回退的说法 */
 const BREAKUP = /我们分手吧|分手吧|我们离婚吧|我们分开吧|别再联系我了|以后别找我了|我们到此为止|我们做回朋友吧/;
 
-/**
- * 从他的话里认出"关系变了"的信号。
- *
- * 为什么需要：提示词里虽然写了"关系往前走了就以最新的为准"，
- * 但**提示词本身每轮还在说旧关系** —— 只是聊天里认下、没去改设置的话，
- * 下一轮她收到的仍然是「你们的关系定位：同事」，很容易又退回去。
- * 所以这里检测出来，一是当轮先提醒她，二是给用户一个一键改的入口。
- *
- * 只在**明确**的说法上触发：宁可漏，不要误报（误报会一直弹提示，很烦）。
- * 所以「我们在一起工作吧」「你今天有点烦」这类都不会命中。
- *
- * @returns {{kind:'together'|'marry'|'breakup', suggest:string, matched:string}|null}
- */
 export function detectRelationSignal(text) {
   const t = String(text || '').trim();
   if (!t) return null;
@@ -492,12 +427,6 @@ export function relationTipText(signal) {
   return `他刚说了「${signal.matched}」——要不要把你们的关系改成「恋人」？`;
 }
 
-/**
- * 当轮注入的提示词：在她还没被改设置之前，先让她别退回旧身份。
- *
- * 这段和【你们的关系定位】不冲突：那段说的是"现在的设定是某某"，
- * 这段说的是"他刚把关系往前推了一步，你要是答应了就认下"。
- */
 export function relationShiftHint(signal) {
   if (!signal) return '';
   const what = signal.kind === 'breakup'

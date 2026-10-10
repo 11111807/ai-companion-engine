@@ -1,16 +1,5 @@
-/**
- * 与云端大模型对话（纯浏览器端，无服务器）
- *
- * 支持 DeepSeek 兼容的 OpenAI 格式接口，流式返回。
- * API Key 只存在本机浏览器，直接发给模型服务商，不经过任何中间服务器。
- */
-
 export const DEFAULT_ENDPOINT = 'https://api.deepseek.com/chat/completions';
 
-/**
- * DeepSeek 官方现在的模型名是 deepseek-flash / deepseek-v4-pro。
- * 旧的 deepseek-chat、deepseek-reasoner 已经下线，继续用会直接报错。
- */
 export const DEFAULT_MODEL = 'deepseek-flash';
 
 /** 已经下线的老模型名 → 新模型名（老用户的配置要自动升级，否则一聊就报错） */
@@ -30,22 +19,11 @@ export function upgradeModel(model) {
   return LEGACY_MODELS[String(model).trim().toLowerCase()] || model;
 }
 
-/**
- * 是不是 DeepSeek **官方**接口。
- *
- * 只有官方认 thinking / reasoning_effort 这些参数。硅基流动之类的第三方
- * 也托管 DeepSeek 模型（模型名同样以 deepseek- 开头），但它们不认这个参数，
- * 传过去可能直接 400。所以这里**只认官方域名**，宁可少一个功能也别报错。
- */
 export function isDeepSeekEndpoint(endpoint, model) {
   if (typeof endpoint === 'string' && /(^|\.)deepseek\.com/i.test(endpoint)) return true;
   return false;
 }
 
-/**
- * 判断是不是本地/内网的服务（Ollama、llama.cpp、LM Studio、vLLM 都算）
- * 这类服务不需要 API Key，也不消耗任何 token 费用。
- */
 export function isLocalEndpoint(endpoint) {
   if (!endpoint) return false;
   try {
@@ -113,22 +91,6 @@ function friendlyError(status, bodyText, local = false) {
   return withDetail(`请求失败（${status}）`, detail);
 }
 
-/**
- * 流式对话
- * @param {object} opts
- * @param {string} opts.apiKey
- * @param {string} [opts.endpoint]
- * @param {string} [opts.model]
- * @param {string} opts.systemPrompt
- * @param {Array<{role:string,content:string}>} opts.messages  历史（不含 system）
- * @param {number} [opts.temperature]
- * @param {number} [opts.maxTokens]
- * @param {boolean} [opts.thinking]  DeepSeek 专用：是否开启深度思考
- * @param {(text:string)=>void} opts.onDelta
- * @param {(text:string)=>void} [opts.onReasoning]  思考过程（不显示给用户，只用来提示"她在想"）
- * @param {AbortSignal} [opts.signal]
- * @returns {Promise<{text:string, usage:object|null}>}
- */
 export async function streamChat(opts) {
   const {
     apiKey,
@@ -144,7 +106,6 @@ export async function streamChat(opts) {
     signal,
   } = opts;
 
-  // 老配置里可能还存着已经下线的模型名，这里兜一下
   const model = upgradeModel(rawModel);
 
   const local = isLocalEndpoint(endpoint);
@@ -161,17 +122,14 @@ export async function streamChat(opts) {
     stream: true,
   };
 
-  // DeepSeek 的新模型默认就开着思考模式：陪聊会又慢又贵，
-  // 所以默认显式关掉，想让她"想清楚再开口"时再打开。
   if (typeof thinking === 'boolean' && isDeepSeekEndpoint(endpoint, model)) {
     payload.thinking = { type: thinking ? 'enabled' : 'disabled' };
     if (thinking) {
-      // 思考模式下 temperature 不生效，干脆不传（传了也不报错，但没必要）
+
       delete payload.temperature;
     }
   }
 
-  // 本地服务一般不看 key，但有的（vLLM 等）要求非空，给个占位符
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   else if (local) headers.Authorization = 'Bearer local';
@@ -197,12 +155,8 @@ export async function streamChat(opts) {
     throw new Error(friendlyError(resp.status, txt, local));
   }
 
-  // 解析 SSE 流
   const reader = resp.body.getReader();
 
-  // 关键：主动响应中止。
-  // 有些环境（以及模型服务端）在流已建立后不会因 signal.abort() 自动中断 read()，
-  // 若不处理，界面会永远停在"生成中"。这里显式 cancel 读取并在结束时抛 AbortError。
   let aborted = false;
   const onAbort = () => {
     aborted = true;
@@ -225,7 +179,6 @@ export async function streamChat(opts) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      // SSE 以换行分隔事件
       const parts = buffer.split('\n');
       buffer = parts.pop() || '';
 
@@ -242,7 +195,7 @@ export async function streamChat(opts) {
         }
         if (json.usage) usage = json.usage;
         const delta = json.choices?.[0]?.delta;
-        // 思考模式：思维链在 reasoning_content 里，绝不能当成她的话显示出来
+
         if (delta?.reasoning_content) {
           reasoning += delta.reasoning_content;
           onReasoning?.(delta.reasoning_content);

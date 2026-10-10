@@ -1,36 +1,3 @@
-/**
- * 职业 / 专业 → 知识储备
- *
- * 解决两个问题（都是用户提出来的）：
- *
- * 1. **她知道的东西要跟年龄和职业对得上**
- *    一个 20 岁的设计专业学生，脑子里该装的是课堂、作业、软件、素材网站、
- *    老师点评、同学互怼，而不是"我当年带团队做品牌全案"。
- *    以前的提示词只写了一句"你是学视觉传达的大二学生"，
- *    结果她一聊到画图就冒出职业设计师的口气，人设就假了。
- *
- * 2. **我（用户）是干什么的**
- *    两人同行 → 能聊到一块去，会互相吐槽、互相请教；
- *    不同行 → 她**只聊自己领域里的日常**，不硬接他的专业，
- *    说"这我真不懂"的时候还得带上**跟情境相称的情绪**。
- *
- * ⚠️ 最关键的一条：**"不懂他的专业" ≠ "不懂他"**。
- * 她可以听不懂他在做什么，但必须听得懂他累不累、烦不烦。
- * 少了这条，她会变成一个只会说"这我不懂"的冷场机器。
- */
-
-/**
- * 知识域。
- *
- * study = 还在念书/实习阶段（按"学生视角"说话）
- * work  = 已经在做事（按"干活的人视角"说话）
- * 年龄只用来在两者之间选，不硬绑 —— 20 岁的程序员也是 work。
- *
- * ⚠️ 关键词表有个坑：**不许放那种"既是自己这行的词、又是别的行的一部分"的词**。
- * 踩过一次：「机械设计制造」被判成设计（因为关键词里有"设计"）、
- * 「市场营销」「电商运营」被判成传媒（因为关键词里有"营销""运营"）。
- * 所以这里只留**区分度高**的词（设计类要写"平面设计""ui 设计"这种带限定的）。
- */
 const DOMAINS = [
   {
     id: 'design',
@@ -263,16 +230,6 @@ const DOMAINS = [
 /** 是不是"念书/实习"的年纪（只用来在 study/work 两套说法之间选） */
 const STUDY_AGE = 24;
 
-/**
- * 他／她说的是哪个领域。
- *
- * **最长的关键词赢**（不是先匹配到的赢）。
- * 踩过的坑：「数字媒体艺术」里有 art 的"艺术"、也有 design 的"数媒"，
- * 按声明顺序轮会判成艺术；按长度就不会。
- * 命中的词一样长时，先声明的优先。
- *
- * 命中不了就返回 null —— **猜不出来就不猜**，免得给错一套知识。
- */
 export function domainOf(text) {
   const s = String(text || '').toLowerCase().trim();
   if (!s) return null;
@@ -294,15 +251,6 @@ function inferDomain(age) {
 
 const inStudy = (age, domain) => age <= STUDY_AGE && domain.id !== 'service';
 
-/**
- * 她自己的知识储备。
- * @param {object} p
- * @param {number} p.age
- * @param {string} p.job
- * @param {string} [p.userJob] 他的职业。填了才会多出"见下面【他的领域】"这句指点，
- *                             否则那句话会指向一个不存在的段落。
- * @param {string} [p.ta] 「她」或「他」
- */
 export function knowledgeBlock({ age = 20, job = '', userJob = '', ta = '她' } = {}) {
   const n = Number(age) > 0 ? Math.round(Number(age)) : 20;
   const j = String(job || '').trim();
@@ -331,15 +279,6 @@ ${stage.talk}
 ${outsider}`;
 }
 
-/**
- * 他的领域 / 他的专业。
- *
- * 这是用户特别要求的一块，核心就一句：
- * **同行能聊到一块，不同行就只聊自己的日常，而且拒绝的时候要有情绪。**
- *
- * ⚠️ "不懂他的专业"绝不等于"不懂他"。少了最后那几条，
- * 她会变成一个只会说"这我不懂"的冷场机器 —— 那比不懂装懂还糟。
- */
 export function userFieldBlock({ age = 20, job = '', userJob = '', ta = '她' } = {}) {
   const his = String(userJob || '').trim();
   if (!his) return '';
@@ -391,10 +330,6 @@ export function userFieldBlock({ age = 20, job = '', userJob = '', ta = '她' } 
    - 一句话里如果只能有一半是懂他的，那也要把这一半说清楚`;
 }
 
-/**
- * 两块合起来（拼提示词用）。
- * 没职业、没设过他的职业时会给出一套"跟年龄相称"的兜底说法。
- */
 export function professionBlock(p = {}) {
   const parts = [knowledgeBlock(p)];
   const his = userFieldBlock(p);

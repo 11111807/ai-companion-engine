@@ -1,33 +1,12 @@
-/**
- * 「我」—— 你自己的基础资料。
- *
- * 为什么单独一个模块：这份资料**所有 AI 好友共用一份**（用户明确要求
- * "每个 ai 好友能看到我自己的信息"）。放在人格配置里就会变成"每个好友一份"，
- * 改个职业得改十几次，而且迟早不一致。
- *
- * 所以分两层：
- *   - **全局**（这里 / state.config 的 my* 字段）：名字、头像、职业、性别、年龄、生日
- *   - **每个好友一份**（profile）：记忆、好感度、场景
- *
- * ⚠️ "全局"现在是真的全局了：这几个字段存在 `xiaoyu.global.v1` 里（见 storage.js 的
- *    GLOBAL_FIELDS）。以前它们躺在**每个好友各自的 config** 里 —— 于是加一个好友，
- *    "我是谁"就被清空了（用户实测："为什么新建好友后，我预设的自己的信息没了"），
- *    而且改一次资料只有当前好友知道。
- *
- * ⚠️ 名字有两份历史包袱：`config.userName`（界面显示用）和
- *    `profile.name`（提示词里的"他叫X"）。这个人设是早期单好友时代留下的，
- *    所以 applyMe() 负责把两边对齐，别让它们各说各的。
- */
-
 /** 我的资料默认值（老配置没有这些字段） */
 export const ME_DEFAULTS = {
   userName: '',
   myEmoji: '',
-  myAvatar: '',        // base64 dataURL，设了就优先用它
-  myJob: '',           // 职业 / 专业（和她的 herJob 一样，能看出"是不是同行"）
+  myAvatar: '',
+  myJob: '',
   myAge: 0,
-  myGender: '',        // 'm' / 'f' / ''（没填）
-  myBirthday: '',      // 'M-D'
+  myGender: '',
+  myBirthday: '',
 };
 
 /** 从配置里取我的资料（缺字段给默认值，不返回 undefined） */
@@ -51,14 +30,6 @@ export const meIsEmpty = (me) => !me.name || (!me.job && !me.age && !me.gender &
 /** 我的资料有没有变过（用来决定要不要因为改名而重画界面） */
 export const meSignature = (me) => [me.name, me.job, me.age, me.gender, me.birthday].join('|');
 
-/**
- * 让 profile.name 和 config.userName 对齐。
- *
- * 为什么需要：`profile.name` 是提示词里"他叫X"的来源，
- * `config.userName` 是界面显示和气泡名字的来源。用户在人设页/设置里
- * 改的是后者，所以每次保存资料都要把它同步过去 ——
- * 以前只靠"聊天时她顺便记住名字"那条路，改了名要聊一句才生效。
- */
 export function applyMe(profile, config) {
   if (!profile || !config) return false;
   const me = readMe(config);

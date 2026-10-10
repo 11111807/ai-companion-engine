@@ -1,21 +1,3 @@
-/**
- * 相处习惯：统计他反复做的「动作旁白」，让她对熟动作有习惯性反应。
- *
- * 为什么需要：
- *   他说"（抱住）"，第一次她"（愣住）"很自然；
- *   但他做过十次了，心情还不错的时候还回"（愣住）""（没躲）"，
- *   就显得非常生硬、像失忆。真人早习惯了，甚至会主动回应
- *   （"（反手抱住）今天怎么这么黏人"）。
- *
- * 做法：从最近的对话里统计他用过的括号动作，出现次数多的写进提示词，
- * 告诉她"这个他常做，你早该习惯了，别再给第一次的反应"。
- */
-
-/**
- * 同义动作归到一组，免得"抱住 / 抱抱 / 抱紧"各算各的。
- * 顺序有讲究：先匹配更具体的（"摸头"要在"抱"之前判断不会冲突，
- * 但"搂"和"抱"归一组是故意的）。
- */
 const ACTION_GROUPS = [
   { key: '抱住', words: ['抱住', '抱抱', '抱紧', '抱一下', '搂住', '搂', '抱'] },
   { key: '摸头', words: ['摸头', '摸摸头', '揉头', '摸头发', '揉头发', '拍头'] },
@@ -48,20 +30,12 @@ export function groupOf(action) {
   return a.replace(/[了着过]/g, '').slice(0, 6);
 }
 
-/**
- * 统计他做过哪些动作、各做了几次。
- * @param {Array<{role:string,content:string}>} msgs
- * @param {object} [opts]
- * @param {number} [opts.recentN=200] 只看最近多少条
- * @returns {Map<string, number>} 动作 → 次数
- */
 export function countActions(msgs, { recentN = 200 } = {}) {
   const list = msgs.length > recentN ? msgs.slice(-recentN) : msgs;
   const count = new Map();
   for (const m of list) {
-    if (m.role !== 'user') continue;          // 只统计**他**做的动作
-    // 旁白框写进来的那条本身就是动作（"抱住"，不带括号）；
-    // 台词里手打的括号动作（"（抱住）"）也照样认 —— 两条路都要走。
+    if (m.role !== 'user') continue;
+
     const actions = m.narr ? [m.content] : extractActions(m.content);
     for (const a of actions) {
       const g = groupOf(a);
@@ -72,14 +46,6 @@ export function countActions(msgs, { recentN = 200 } = {}) {
   return count;
 }
 
-/**
- * 生成给模型看的「相处习惯」段落。
- * @param {Array} msgs
- * @param {object} [opts]
- * @param {number} [opts.minCount=2] 至少做过几次才算"习惯"
- * @param {number} [opts.maxItems=6]
- * @returns {string} 没有习惯动作时返回空串
- */
 export function habitsBlock(msgs, { minCount = 2, maxItems = 6, recentN = 200 } = {}) {
   const count = countActions(msgs, { recentN });
   const items = [...count.entries()]

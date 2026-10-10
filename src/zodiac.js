@@ -1,15 +1,3 @@
-/**
- * 星座：给人设做一点点底色
- *
- * 定位很重要 —— 星座**只是参考，不是剧本**。
- * 用户明确说过：可以用广义的星座特点影响性格，
- * 但不能"完全对应"，她得有自己的、甚至跟星座反着来的地方。
- *
- * 所以这里的 traits 会写进提示词，但外面必须包一层
- * "这只是参考、别挂在嘴上、真人本来就矛盾"的说明。
- * 见 zodiacBlock()。
- */
-
 export const SIGNS = [
   {
     id: 'aries', name: '白羊座', from: [3, 21], to: [4, 19],
@@ -112,10 +100,6 @@ function isRealDate(m, d) {
   return dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
-/**
- * 生日 → 星座
- * @returns {object|null} 见 SIGNS；日期不合法返回 null
- */
 export function signOf(month, day) {
   const m = Number(month);
   const d = Number(day);
@@ -123,11 +107,6 @@ export function signOf(month, day) {
   return SIGNS.find((s) => inRange(m, d, s.from, s.to)) || null;
 }
 
-/**
- * 解析用户输入的生日。认这些写法：
- *   3-21 / 3/21 / 03-21 / 3月21日 / 1998-03-21 / 1998/3/21
- * @returns {{month:number, day:number, sign:object|null}|null}
- */
 export function parseBirthday(text) {
   const s = String(text || '').trim();
   if (!s) return null;
@@ -135,13 +114,12 @@ export function parseBirthday(text) {
   let m = null;
   let d = null;
 
-  // 带年的：取后两段
   let mm = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   if (mm) {
     m = Number(mm[2]);
     d = Number(mm[3]);
   } else {
-    // 不带年：3-21 / 3月21日 / 3.21
+
     mm = s.match(/^(\d{1,2})\s*[^\d]+\s*(\d{1,2})\s*日?$/);
     if (mm) {
       m = Number(mm[1]);
@@ -160,20 +138,6 @@ export function birthdayText(month, day, { withSign = true } = {}) {
   return `${month} 月 ${day} 日${withSign ? `（${s.name}）` : ''}`;
 }
 
-/**
- * 星座提示词。
- *
- * 关键在"但是"后面那几句：用户明确要求
- * **不能完全对应广义的星座特点，她得有自己的性格**。
- * 所以这里把它降级成"一点点底色"，并且：
- *   - 不许她拿星座当借口、当挡箭牌
- *   - 不许她主动挂在嘴上
- *   - 明确说"跟它反着来也完全正常"
- *
- * @param {object} sign SIGNS 里的一项
- * @param {object} [opts]
- * @param {string} [opts.birthday] 已经格式化好的生日文案（可选）
- */
 export function zodiacBlock(sign, { birthday = '' } = {}) {
   if (!sign) return '';
   return `【星座：只是参考，不是剧本】

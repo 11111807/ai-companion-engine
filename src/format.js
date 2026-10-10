@@ -1,14 +1,3 @@
-/**
- * 文本格式化的公共小工具。
- *
- * 为什么单独一份：这几个函数在 app.js 里被**几十处**调用，
- * 而且它们是纯的（给什么算什么，不碰状态），放在界面代码中间纯属被埋了。
- * 其中 `esc()` 尤其要紧 —— 它是所有 HTML 拼接的唯一安全闸门，
- * 单独放一处才不会有人再手写一个只在部分地方转义的版本。
- *
- * 全部纯函数：不碰 DOM、不碰 state。「现在」由调用方传进来。
- */
-
 /** HTML 转义。凡是把用户/模型给的文本拼进 innerHTML 的地方，都必须过它 */
 export const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -21,10 +10,6 @@ export function isEmojiOnly(t) {
   return /^[\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u.test(s);
 }
 
-/**
- * 消息时间戳 → 界面上显示的文字。
- * "今天/昨天/前天"是拿**她的虚拟时间**（now）算的，不是现实时间。
- */
 export function timeText(ts, now = Date.now()) {
   const d = new Date(ts);
   const cur = new Date(now);

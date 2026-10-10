@@ -1,20 +1,3 @@
-/**
- * 好感度
- *
- * 用户要的三件事：
- *   1. 在「+」面板里能看到 **她（他）对我的好感度**
- *   2. 也能看到 **她（他）认为我们的关系是怎样的**
- *   3. 好感度的高低要**影响她对我的态度**（不只是个数字）
- *
- * 所以这个模块给三方用：
- *   - UI：levelOf() 拿档位和中文标签画进度条
- *   - 提示词：attitudeText() 告诉模型"这个档位该怎么表现"
- *   - 对话：drift() 按他这一句话的冷暖，微调好感度
- *
- * 设计上刻意保守：自动涨跌很小，主要靠初始设定 + 手动调整。
- * 一个看不懂的算法偷偷把你的好感度扣光，比不做还糟。
- */
-
 /** 每个档位：怎么表现（进提示词）+ 她心里怎么定义这段关系（给用户看） */
 export const LEVELS = [
   {
@@ -90,11 +73,6 @@ export function clamp(v) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-/**
- * 不取整的版本，内部用。
- * 为什么要它：好感度是**慢慢攒**的，普通聊一句只涨 0.4。
- * 如果每步都取整，50 + 0.4 会round回 50 —— 那个"缓慢升温"就永远不发生。
- */
 function clampRaw(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 50;
@@ -108,22 +86,6 @@ export function nextLevelAt(value) {
   return up ? up.min : 100;
 }
 
-/**
- * 人本主义：罗杰斯的三个核心条件。
- *
- * 共情（empathic understanding）、真诚（congruence）、
- * 无条件积极关注（unconditional positive regard）。
- *
- * 其中"积极关注"**是有条件还是无条件，取决于好感度**：
- *   好感度低 → 有条件关注：你的好是要挣的，他认真你才多给一点
- *   好感度高 → 无条件积极关注：不管他做了什么，你都不否定他这个人
- *
- * 共情和真诚则**任何档位都成立** —— 这两条是"像个真人"的底线，
- * 不该因为她一时心情不好就消失。
- *
- * ⚠️ 低好感那档**不能写得太暖**。"无条件积极关注"必须是真的有条件，
- * 否则好感度这根轴就没意义了（她会变成一上来就掏心掏肺）。
- */
 export function regardBlock(value) {
   const n = clamp(value);
   const regard = n < 40 ? REGARD_CONDITIONAL : n < 70 ? REGARD_LOOSENING : REGARD_UNCONDITIONAL;
@@ -162,31 +124,12 @@ const REGARD_UNCONDITIONAL = `**无条件积极关注**（你已经很在乎他�
 - 他犯了错、丢了脸、说了幼稚的话，你的第一反应是站在他这边，而不是评判他
 - 他情绪低落的时候，你不去纠正他的想法，只是让他知道你在`;
 
-/**
- * 好感度这块提示词。
- *
- * 注意这里**不再写"你们的关系是X"** —— 身份交给 relation.js 的
- * 【你们的关系定位】那块去立（内容具体得多，而且明确"身份不许动摇"）。
- * 这块只管**温度**，免得两边说法打架。
- *
- * ⚠️ 也**不再输出那个精确数字**（原来写的是"好感度：72/100"）。理由有两个：
- *   1. 正常聊一句好感度就 +0.4 —— 带数字的话这段**每一轮都不一样**，
- *      而它是会破坏提示词前缀缓存的（见 persona.js 的 volatile 说明）
- *   2. 模型本来就不该说出这个数字（见下面最后一条），给它看反而容易露馅
- * 现在给的是**档位**（生分 / 有点好感 / 聊得来 / 挺喜欢 / 很喜欢）——
- * 档位不变，这段就一个字都不变。
- *
- * @param {number} value
- * @param {object} [opts]
- * @param {string} [opts.ta]          「她」或「他」
- * @param {number} [opts.baseline]    初始好感度（**跨了档**才提一句）
- */
 export function affectionBlock(value, { ta = '她', baseline = null } = {}) {
   const n = clamp(value);
   const lv = levelOf(n);
 
   const lines = [`【你对他的好感度：${lv.label}】`];
-  // 只在**跨了大档**时提一句"比一开始更亲近了"：同一档里的小幅波动说了没意义
+
   if (typeof baseline === 'number' && levelOf(clamp(baseline)).key !== lv.key) {
     const way = n > clamp(baseline) ? '比一开始更亲近了' : '比一开始疏远了一些';
     lines.push(`（你们刚认识的时候是「${levelOf(clamp(baseline)).label}」，现在${way}。）`);
@@ -211,60 +154,17 @@ export function affectionBlock(value, { ta = '她', baseline = null } = {}) {
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------- 自动涨跌
-
-/**
- * 让好感度往上走的话（关心、记挂、亲昵）
- *
- * ⚠️ 这是**子串匹配**，天生会误判，所以配了否定词检查（见 negated()）。
- * 实测踩过的坑：「我不想你了」里有「想你」→ 不加检查的话好感度反而 +1.5。
- */
 const WARM = /想你|喜欢你|想见你|抱抱|抱一下|亲亲|宝贝|晚安|早点睡|注意身体|辛苦了|别太累|多喝热水|我给你|给你买|我请你|请你吃|想我没|惦记|担心你|照顾好自己|我陪你/;
 
-/**
- * 明显伤人的话。
- *
- * ⚠️ 故意写得**精确**，不收单字。
- * 踩过的坑：原来正则里有单独的「滚」和「烦死」，
- * 结果「我们滚去睡觉吧」被判成 −3、「我快累死了好烦」也被当成冲她发火。
- * 汉语里这些字大量用于自嘲和玩笑，宁可漏判也不能误伤。
- */
 const MEAN = /滚开|滚远点|滚蛋|你给我滚|别理我|讨厌你|分手吧|我们分手|拉黑|你有病|神经病|闭嘴|烦死你了|不想跟你说话|不想理你/;
 
-/**
- * 「分手级」的话 —— 比 MEAN 重一个量级。
- *
- * 用户的原话："故意说话让她伤心，并提出绝交/分手，她的情绪监测显示 50% 伤心，
- * 但**好感度变化并不明显**，而且立马提出和好也会立马答应，人类管这个叫'舔狗'。"
- *
- * 为什么会那样：原来只有 MEAN 这一档，扣 3 分，而普通聊天每轮自动 +0.4 ——
- * 说一句"我们分手吧"扣的分，聊十句就补回来了。**关系破裂被当成了普通拌嘴。**
- *
- * 所以单开一档：破裂是**事件**，不是情绪。它一次性砸掉一大截好感度，
- * 并且在修复之前**关掉自动升温**（见 drift 的 rupture 参数）。
- */
 const SEVERE = /分手|绝交|别联系了|拉黑|不想再见到你|当没认识过|我们完了|再也不理|离我远点|不想看到你|我讨厌你|我们结束了|到此为止|散了吧/;
 
-/**
- * 这句话明显在说**别的事**（电影 / 项目 / 别人），不是在说他俩。
- *
- * ⚠️ 没有这道闸会误伤得很惨（实测）：
- *   "这部电影的结局分手了" → 判成他俩分手，好感度直接 −25
- *   "这个项目到此为止了"   → 同上
- * 判据：出现第三方名词、而且整句里没有"我们 / 咱 / 我俩"。
- */
 const THIRD_PARTY = /电影|电视剧|剧里|小说|故事|游戏|项目|工作|他们|人家|别人|队友|偶像|明星/;
 
 /** 说的"我们俩"的事（而不是电影里的事） */
 const aboutUs = (t) => !THIRD_PARTY.test(t) || /我们|咱|我俩|你我/.test(t);
 
-/**
- * 这一句是**在否认**要分手吗。
- *
- * ⚠️ 通用的 negated() 只看前 3 个字，而"我**不会**跟你分手"里的"不"隔着 4 个字 ——
- * 用那个窗口，"我不会跟你分手"会被判成主动提分手、一次扣 25（测试当场抓到）。
- * 所以分手级单独配一个更宽的否决式：否定词 + 6 个字以内 + 分手类动词。
- */
 const DENIED = /(?:不|别|没|不会|不想|不可能|绝不|谁)[^，。！？]{0,6}(?:分手|绝交|拉黑|离开你|结束)/;
 
 /** 这一句算不算"真的要分手" */
@@ -273,12 +173,6 @@ const isSevere = (t) => {
   return at >= 0 && !negated(t, at) && aboutUs(t) && !DENIED.test(t);
 };
 
-/**
- * 修复关系的三种动作 —— 用户点名的三个：**道歉、送礼、安慰**。
- *
- * "和好是一个需要过程的"：光说一句"对不起"不算修好，
- * 得**攒够诚意**（`AMEND_NEED`）才解除破裂状态。见 `ruptureShift()`。
- */
 const SORRY = /对不起|抱歉|我错了|是我不好|是我错|原谅我|别气了|不该那样|不该说|冲动了|我反省|我混蛋/;
 const GIFT = /给你买|送你|请你吃|买给你|礼物|快递|带了|特意给|下单|点外卖|赔你/;
 const COMFORT = /我陪你|陪着你|心疼|抱抱|哄你|在乎你|还喜欢你|离不开你|想你了|我改|我会改|再给我一次/;
@@ -286,27 +180,8 @@ const COMFORT = /我陪你|陪着你|心疼|抱抱|哄你|在乎你|还喜欢你
 /** 攒够多少"诚意"才算把关系修回来（道歉 2 / 送礼 3 / 安慰 2） */
 export const AMEND_NEED = 7;
 
-/**
- * 敷衍到只剩一个字的回复。
- *
- * ⚠️ 曾经把「哈哈」「好的」「行」也算进来，那是**正常回应**不是敷衍，
- * 一律扣分会让正常聊天被误伤。现在只留真正敷衍的。
- */
 const COLD_REPLY = /^(嗯+|哦+|额+|呃+|啊+|随便|都行|不知道|没事|呵呵|6|好的吧|。。。*|\.{3,})$/;
 
-/**
- * 这个位置上的关键词是不是被否定了。
- *
- * 规则（都是踩出来的）：
- * 1. 往前看 3 个字，**遇到标点就停** —— "你说得不错，我很想你" 里的"不"
- *    不能被算到"想你"头上
- * 2. 不/没/甭/莫/勿 出现在这一段里就算否定
- * 3. 「别」要单独判断：**"特别""分别""区别"里的别不是否定**。
- *    这是实测踩到的：一开始用 3 字窗口，"今天特别想你"被当成否定，
- *    好感度一点都不涨。现在只有当「别」前面的字不属于这些复合词时才认。
- *
- * 猜不准的（"我不觉得你会想我"）就**不猜** —— 宁可漏判，不要误判。
- */
 function negated(text, at) {
   if (at <= 0) return false;
   let s = text.slice(Math.max(0, at - 3), at);
@@ -316,7 +191,6 @@ function negated(text, at) {
 
   if (/[不没甭莫勿]/.test(s)) return true;
 
-  // 别：只有当它前面不是这些字时才是否定
   if (s.endsWith('别') && !/[特个分区块告性辨识别鉴诀离临送作拜道差级]/.test(s.slice(-2, -1))) {
     return true;
   }
@@ -324,25 +198,11 @@ function negated(text, at) {
 }
 
 /** 长期不联系之后，好感度大概会淡到什么程度 */
-export const DECAY_AFTER_DAYS = 3;   // 超过几天不聊才开始淡
-export const DECAY_PER_DAY = 0.5;    // 之后每天淡多少
-export const DECAY_MAX = 15;         // 一次最多淡这么多
-export const AFFECTION_FLOOR = 15;   // 再淡也不会低于这个（不是归零）
+export const DECAY_AFTER_DAYS = 3;
+export const DECAY_PER_DAY = 0.5;
+export const DECAY_MAX = 15;
+export const AFFECTION_FLOOR = 15;
 
-/**
- * 他这一句话让好感度动了多少。
- *
- * 刻意做得**很小**：一句话不该让关系大变。
- * 而且正常聊天会缓慢升温（涨到 70 以后就基本停了，
- * 再往上得靠真正用心的互动，不是靠聊天次数堆）。
- *
- * 注意返回值**不取整**（可能是 50.4）—— 取整会让"缓慢升温"永远发生不了。
- * 只在这里用整数的是 UI 显示和手动调整。
- *
- * @param {number} current 当前好感度
- * @param {string} text    他刚说的话
- * @returns {number} 建议的新好感度
- */
 export function drift(current, text, { rupture = false, scar = 0 } = {}) {
   const cur = clampRaw(current);
   const t = String(text || '').trim();
@@ -350,7 +210,6 @@ export function drift(current, text, { rupture = false, scar = 0 } = {}) {
 
   let d = 0;
 
-  // 先做布尔判断，命中与否都要过否定检查
   const warmAt = t.search(WARM);
   const meanAt = t.search(MEAN);
   const severeAt = t.search(SEVERE);
@@ -358,51 +217,31 @@ export function drift(current, text, { rupture = false, scar = 0 } = {}) {
   const mean = meanAt >= 0 && !negated(t, meanAt);
   const severe = severeAt >= 0 && isSevere(t);
 
-  // 分手级：一次性砸掉一大截（不是"稍微不高兴"）
   if (severe) d -= 25;
   else if (mean) d -= 5;
-  // 破裂还没修好的时候，甜话也不好使 —— 那正是"需要过程"的意思
+
   if (warm && !rupture) d += 1.5;
   if (t.length <= 4 && COLD_REPLY.test(t)) d -= 1.5;
-  if (t.length >= 40) d += 0.8;              // 愿意认真打一段话
+  if (t.length >= 40) d += 0.8;
   if (/你呢|你呢？|你怎么样|你还好吗/.test(t)) d += 0.5;
 
-  // 没什么特别的话：普通聊天气缓慢升温，但
-  //   · 破裂期内**不升温**（还没原谅他，凭什么回暖）
-  //   · 有过"分手前科"的关系升温更慢（用户："我犯下错误导致分手，
-  //     可以让好感度增长变的更慢"）—— 每道疤砍掉一半速度
   if (d === 0 && cur < 70 && !rupture) d = 0.4 / (1 + 0.5 * Math.max(0, scar));
 
   return clampRaw(cur + d);
 }
 
-// ---------------------------------------------------------------- 破裂与修复
-
-/**
- * 他这一句话，让"关系破裂"这件事动了多少。
- *
- * 这个函数是纯的：进去一个状态，出来一个新状态 + 一个事件名。
- * 调用方（app.js）负责存进 profile、弹提示、给提示词喂状态。
- *
- * @param {{rupture?:boolean, amends?:number}} state
- * @param {string} text 他刚说的话
- * @returns {{rupture:boolean, amends:number, event:'break'|'amend'|'heal'}|null}
- *   null = 这一句跟破裂/修复无关
- */
 export function ruptureShift(state = {}, text = '') {
   const t = String(text || '').trim();
   if (!t) return null;
   const inRupture = !!state.rupture;
   const amends = Math.max(0, Number(state.amends) || 0);
 
-  // 又提分手（或者第一次提）→ 破裂，而且**诚意清零**（他等于把之前的道歉全推翻了）
   const at = t.search(SEVERE);
   if (isSevere(t)) {
     return { rupture: true, amends: 0, event: 'break' };
   }
   if (!inRupture) return null;
 
-  // 在破裂期里：道歉 / 送礼 / 安慰 各算一笔诚意
   let gain = 0;
   if (SORRY.test(t)) gain += 2;
   if (GIFT.test(t)) gain += 3;
@@ -414,18 +253,6 @@ export function ruptureShift(state = {}, text = '') {
   return { rupture: true, amends: next, event: 'amend' };
 }
 
-/**
- * 他刚说的这句话，让**好感度和关系状态**各动了多少 —— 一次算完。
- *
- * 为什么合成一个：这两件事本来就是同一次判断（一句话要么是甜的、要么是伤人的、
- * 要么是在道歉）。分开算的话，"分手"那一刻的扣分和状态更新就散在两个地方，
- * "破裂期间不升温"这条规则也容易漏。
- *
- * @param {object} profile  读 affection / rupture / amends / scar
- * @param {string} text     他刚说的话
- * @returns {{affection:number, rupture:boolean, amends:number, scar:number, event:string}}
- *   event: 'break'(破裂) | 'amend'(诚意+1) | 'heal'(修好了) | ''(没事发生)
- */
 export function turn(profile = {}, text = '') {
   const cur = clampRaw(profile.affection == null ? 50 : profile.affection);
   const r = ruptureShift(profile, text) || {};
@@ -435,7 +262,7 @@ export function turn(profile = {}, text = '') {
   if (r.event === 'break') scar = Math.min(3, scar + 1);
 
   let affection = drift(cur, text, { rupture, scar });
-  // 修好了也只是"缓过来"，不是回到从前（那 −25 不会全额返还）
+
   if (r.event === 'heal') affection = clampRaw(affection + 6);
   return { affection, rupture, amends, scar, event: r.event || '' };
 }
@@ -460,16 +287,6 @@ export function ruptureBlock(amends = 0) {
 - 这一整轮都可以短、可以冷、可以只回两三个字。你有资格不理他`;
 }
 
-/**
- * 隔了很久没聊，感情会淡一点。
- *
- * 为什么单独做：drift() 是"每句话"的微调，管不了"三个月没说话了"。
- * 原来好感度只会涨不会降，晾着不管她也一直 80 分。
- *
- * @param {number} value    当前好感度
- * @param {number} gapDays  距上次聊天多少天
- * @returns {number} 新好感度（没到阈值就原样返回）
- */
 export function decayForGap(value, gapDays) {
   const cur = clampRaw(value);
   const days = Number(gapDays);
@@ -489,26 +306,12 @@ export function affectionSummary(value) {
   return `${levelOf(n).short} · ${n}`;
 }
 
-// ---------------------------------------------------------------- 性格 ↔ 好感度
-
-/**
- * 性格标签对"一开始就好感度多高"的影响。
- *
- * 用户要的是"初始设置的性格与好感度相对应"：
- * 一个黏人、爱撒娇的人，一上来就冷冷的很别扭；
- * 一个慢热、内向的人，一上来就黏着你更别扭。
- */
 const TRAIT_AFFECTION_WEIGHT = {
   黏人: 16, 爱撒娇: 11, 活泼: 5, 温柔: 5, 爱开玩笑: 5, 古灵精怪: 3,
   傲娇: -4, 嘴硬心软: -3, 毒舌: -6, 理性: -6, 稳重: -6,
   独立: -9, 内向: -11, 慢热: -13,
 };
 
-/**
- * 按性格推荐一个初始好感度。
- * @param {string[]} traits
- * @returns {number} 15..85 之间的建议值
- */
 export function suggestFromTraits(traits = []) {
   const list = Array.isArray(traits) ? traits : [];
   let v = 45;
@@ -516,10 +319,6 @@ export function suggestFromTraits(traits = []) {
   return Math.max(15, Math.min(85, Math.round(v)));
 }
 
-/**
- * 性格和好感度看起来矛不矛盾？矛盾就返回一句提醒（不阻止，只是提示）。
- * @returns {string} 没有矛盾时返回空串
- */
 export function traitAffectionWarning(traits = [], value = 50) {
   const v = clamp(value);
   const list = Array.isArray(traits) ? traits : [];

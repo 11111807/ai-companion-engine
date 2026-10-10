@@ -1,19 +1,3 @@
-/**
- * 好友界面：消息页 / 好友页 / 我 / 加好友面板。
- *
- * 为什么单独一个模块：这一块是**纯界面**（画列表、切页面、加好友的流程），
- * 但又需要 app.js 里一大堆状态和函数。硬把它做成"参数传进去"的纯模块
- * 会让调用点写得很难看（要传二十个东西），所以这里用**工厂模式**：
- * app.js 在启动时把需要的依赖一次性交给它，之后这些函数就活在好友界面的作用域里。
- *
- * ⚠️ 这是全项目唯一一处"界面模块持有 app.js 依赖"的地方，别复制这个模式到别处 ——
- *    别的模块（storage / memory-io / search / personas…）都该是纯的、参数传入。
- *
- * 三个主页的约定：
- *   - 底部导航只在这三个主页上出现；聊天页和各个设置页是盖在它们上面的下一层
- *   - 页面切换统一用 **hidden 属性**，不用 class（class 那套被 [hidden] 压住过，
- *     表现成"类是加上了但页面不动"，很难查）
- */
 export function createFriendUI(deps) {
   const {
     state, $, $$, esc, timeText,
@@ -26,9 +10,6 @@ export function createFriendUI(deps) {
     openPersona, openSettings, openMenu, toast, nearestAffPreset, defaultAffectionFor,
   } = deps;
 
-  /** 列表行里的头像。
-   *  ⚠️ 故意不用 `.wx-avatar.her` / `.wx-avatar.me`：那两个类是"聊天页里的头像"，
-   *  测试靠它们验证"换头像后聊天区跟着变"，列表行复用会让选择器抓到列表里的。 */
   const listAvatarHTML = (emoji) =>
     `<div class="wx-avatar item">${esc(emoji || '🙂')}</div>`;
 
@@ -53,28 +34,11 @@ export function createFriendUI(deps) {
   /** 按最近说话排序（消息页 / 好友页都用它，只是显示内容不同） */
   const recentPersonas = () => byRecency(state.nav).map((p) => personaView(p.id));
 
-  // -------------------------------------------------------------- 切人
-
-  /**
-   * 切到另一个好友。
-   *
-   * ⚠️ 内存里只有"当前好友"那一份 config/messages/profile（这是刻意的：
-   *    每个好友一份内存副本会让几百处 state.profile 读写变得不可控）。
-   *    所以切换 = 当前这份落盘 + 读下一份进来。
-   *
-   * @returns {boolean} 真的切过去了才 true。
-   *   ⚠️ **必须显式 return** —— 调用方写的是 `if (!switchPersona(id)) return;`，
-   *      漏了就返回 undefined，"人切了、页面没切"，极难查（踩过一次）。
-   */
   function switchPersona(id) {
     const target = String(id || '');
     if (!findPersona(state.nav, target)) return false;
     if (target === state.nav.active) return true;
 
-    // ⚠️ 他可能在"她正在打字"的时候点开另一个好友。不中止的话，那一轮的回复
-    //    会在切人**之后**才回来 —— 而那时 state.messages / saveChat() 已经是
-    //    新的这个人了，回复就落到别人身上（用户实测："给这个发，另一个回的我"）。
-    //    respond() / speakUp() 里也有归属检查兜底，这里中止是为了**别白等**。
     if (state.generating && state.abort) { try { state.abort.abort(); } catch {} }
 
     saveProfile();
@@ -86,7 +50,6 @@ export function createFriendUI(deps) {
     loadPersona(target);
     savePersonaIndex();
 
-    // 换人了 → 增量渲染的记账作废（不然她会把小安的新消息画成小雨的记录）
     deps.resetChatRender?.();
     renderHerIdentity();
     renderAffection();
@@ -103,8 +66,7 @@ export function createFriendUI(deps) {
 
   /** 进入某个好友的聊天页 */
   function openChat(id) {
-    // 一个好友都没有时（"忘记你们的一切"会把好友一起删掉）不能进聊天页，
-    // 否则是对着一个不存在的人说话。回消息列表，那里有"请添加好友"的提示。
+
     if (!state.nav.active) { showTab('msgs'); return; }
     if (id && String(id) !== state.nav.active) {
       if (!switchPersona(id)) return;
@@ -120,8 +82,6 @@ export function createFriendUI(deps) {
 
   /** 从聊天页退回消息列表（左上角返回键） */
   const closeChat = () => showTab('msgs');
-
-  // -------------------------------------------------------------- 三个主页
 
   function showTab(tab) {
     const which = ['msgs', 'friends', 'me'].includes(tab) ? tab : 'msgs';
@@ -176,8 +136,7 @@ export function createFriendUI(deps) {
       parts.push(rest.map((v) => listItemHTML(v)).join(''));
     }
     if (!list.length) {
-      // 一个好友都没有了（"忘记你们的一切"会把好友一起删掉）——
-      // 这里要说清楚下一步做什么，光写"还没有好友"他会愣在那儿
+
       parts.push(`<div class="wx-empty">
         还没有好友。<br>
         <strong>请添加一个好友</strong>，才能开始聊天。
@@ -209,8 +168,6 @@ export function createFriendUI(deps) {
       ${list.length ? list.map((v) => listItemHTML(v, { showUnread: false })).join('')
     : '<div class="wx-empty">还没有好友。<br><strong>请添加一个好友</strong>，就能开始聊了。</div>'}`;
   }
-
-  // -------------------------------------------------------------- 我
 
   function renderMe() {
     const box = $('#meCard');
@@ -245,13 +202,11 @@ export function createFriendUI(deps) {
       </div>`;
   }
 
-  // -------------------------------------------------------------- 加好友
-
   /** 加好友面板：预设人格 + 空白新建 */
   function openAddFriend() {
     const wrap = $('#addFriendPanel');
     wrap.hidden = false;
-    // .overlay 靠 .show 滑进来 —— 只去掉 hidden 是不动的（它是 translateX(100%)）
+
     wrap.classList.add('show');
     $('#addFriendList').innerHTML = PERSONA_PRESETS.map((p) => `
       <div class="wx-item" data-preset="${esc(p.id)}" role="button" tabindex="0">
@@ -271,21 +226,16 @@ export function createFriendUI(deps) {
     $('#addFriendPanel').hidden = true;
   }
 
-  /**
-   * 用一个预设（或空白）建新好友，然后进人设页让他确认/修改。
-   * 预设只填"初始值"，人设页里改什么就是什么。
-   */
   function createPersona(presetId) {
     const preset = findPreset(presetId);
-    const fromId = state.nav.active;      // 记住"从谁那儿来的"：取消新建时要切回去
+    const fromId = state.nav.active;
     const { nav, persona } = addPersona(state.nav, {
       name: preset ? preset.name : '',
       emoji: preset ? preset.emoji : '🙂',
     });
-    // 记下这次新建 —— 人设页点返回时要把这个人撤掉（见 app.js 的 cancelPendingNew）
+
     deps.notePendingNew?.(fromId, persona.id);
 
-    // 先把当前好友落盘，再切到新好友（新好友还是空的）
     saveProfile();
     saveChat();
     saveConfig();
@@ -297,8 +247,7 @@ export function createFriendUI(deps) {
     for (const key of Object.keys(state.profile)) delete state.profile[key];
     fixProfileShape(state.profile, state.messages);
     fixConfigShape(state.config, saveConfig);
-    // ⚠️ 清空之后要把**全局设置**（API Key / 模型 / 接口）合并回来 ——
-    //    这几项是所有好友共用的，新好友不该让他再填一次 Key
+
     deps.applyGlobalConfig?.();
 
     if (preset) {
@@ -319,7 +268,7 @@ export function createFriendUI(deps) {
       }
       state.profile.affection = nearestAffPreset(defaultAffectionFor(f.herRelation));
       state.profile.affectionBase = state.profile.affection;
-      // 预设自带的开场白，第一次见面时用一次（见 app.js 的 bootGreeting）
+
       state.config.pendingOpening = f.opening || '';
     }
     saveConfig();
@@ -329,8 +278,6 @@ export function createFriendUI(deps) {
     renderNav();
     openPersona({ fromSettings: true, asNew: true });
   }
-
-  // -------------------------------------------------------------- 我的资料页
 
   function openMe() {
     const { readMe } = deps;
@@ -361,7 +308,7 @@ export function createFriendUI(deps) {
     c.myGender = g === 'm' ? 'm' : g === 'f' ? 'f' : '';
     const bd = parseBirthday($('#meBirthday').value);
     c.myBirthday = bd ? `${bd.month}-${bd.day}` : '';
-    // 头像不在这里收：它由头像面板直接写进 config（见 app.js 的 avatarOps）
+
     applyMe(state.profile, c);
     saveConfig();
     saveProfile();
@@ -374,8 +321,6 @@ export function createFriendUI(deps) {
     toast('资料改好了，每个好友都看得到', 2000);
     return herName();
   }
-
-  // -------------------------------------------------------------- 事件
 
   /** 事件委托：从点击目标往上找最近的 [data-*]，把那个元素交给回调（列表会重画） */
   function onTap(sel, handler) {
@@ -402,9 +347,7 @@ export function createFriendUI(deps) {
     $('#btnAddFriend')?.addEventListener('click', openAddFriend);
     $('#btnCloseAddFriend')?.addEventListener('click', closeAddFriend);
     $('#btnAddBlank')?.addEventListener('click', () => createPersona(''));
-    $('#btnBack')?.addEventListener('click', closeChat);   // 聊天页左上角：回消息列表
-    // ⚠️ 消息页右上角那个 ··· 已经去掉了（点进聊天框右上角本来就有，
-    //    功能完全一样，摆在那儿只是重复）。这里不再绑 #btnMsgsMore。
+    $('#btnBack')?.addEventListener('click', closeChat);
 
     $('#btnCloseMe')?.addEventListener('click', () => { closeMe(); renderMe(); });
     $('#btnMeSave')?.addEventListener('click', () => { applyMeForm(); closeMe(); });

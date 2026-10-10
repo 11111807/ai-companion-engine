@@ -1,20 +1,3 @@
-/**
- * 存储层 —— localStorage 的三个抽屉，以及"存之前要先整理一遍"的那些规矩。
- *
- * 为什么单独一个模块：
- *   这块逻辑原来埋在 app.js 里（读、写、老数据补字段、配额满了怎么办、
- *   记忆的淘汰与钉住），跟界面代码混在一起。它是**唯一碰磁盘的地方**，
- *   单独放一处之后，"数据长什么样、写下去之前会被怎么改"一眼能看全。
- *
- * 这个模块**不碰 DOM、不碰全局 state** ——
- * 要操作哪个对象、用哪个"现在"，都由调用方传进来。
- * 好处是它可测、可复用，也不会和 app.js 纠缠成循环依赖。
- *
- * ⚠️ 一个必须守住的约定：**只做原地修改（Object.assign），不许替换对象**。
- * app.js 里 `state.config` / `state.profile` 的引用是长期持有的，
- * 一旦这里 `state.config = {...}`，界面上拿到的还是旧那个对象。
- */
-
 import { decayFacts, newMeta } from './memory.js';
 import { upgradeModel } from './api.js';
 
@@ -23,41 +6,20 @@ export const CFG_KEY = 'xiaoyu.config.v1';
 export const CHAT_KEY = 'xiaoyu.chat.v1';
 export const PROFILE_KEY = 'xiaoyu.profile.v1';
 
-/**
- * 「全局设置」单独一个 key —— **所有好友共用一份**。
- *
- * 为什么要分两种"全局"（用户连问了两个问题：
- *   "重新开一个好友，需要另外的 API 吗，不能用一个吗"
- *   "为什么新建好友后，我的以前预设的自己的信息为什么没了"）：
- *
- *   1. **部署级**：Key / 模型 / 接口 —— "这个部署连哪个模型"，跟她是谁都无关
- *   2. **用户级**：我的名字 / 头像 / 职业 / 性别 / 年龄 / 生日（见 me.js）——
- *      用户在「我」里填一次，**所有好友都该看到同一份**
- *   3. **世界级**：内置时钟的偏移（clockOffset）—— "她那边的现在"是**世界的时间**，
- *      不是某个好友的属性。以前它存在每个好友自己的 config 里，于是换个好友
- *      时间就回到现实了（用户实测："我调了时间，换个人就不对了"，
- *      而且她在别的好友那儿也会按错误的时间说话）
- *
- *   这些以前都存在**每个好友各自的 config** 里（新建好友时那份 config
- *   从空白开始）→ 每加一个好友都要重填 Key、连"我是谁"都被清掉了。
- *   现在都收在这一份里，好友自己的 config 只管人设/关系/回复风格。
- */
 export const GLOBAL_KEY = 'xiaoyu.global.v1';
 
 /** 哪些字段是全局的 */
 export const GLOBAL_FIELDS = [
-  // 部署级：连哪个模型
+
   'apiKey', 'provider', 'model', 'endpoint',
-  // 用户级：「我」的资料（所有好友看到的是同一个人）
+
   'userName', 'myEmoji', 'myAvatar', 'myJob', 'myAge', 'myGender', 'myBirthday',
-  // 世界级：内置时钟（所有好友共用同一个"现在"）
+
   'clockOffset',
 ];
 
 /** 浏览器 localStorage 大约 5MB。用来算"还剩多少"，不保证精确 */
 export const QUOTA_BYTES = 5 * 1024 * 1024;
-
-// ---------------------------------------------------------------- 读
 
 /** 从 localStorage 读一个 JSON。坏数据 / 不存在都当成 fallback，不抛错 */
 export function readJSON(key, fallback) {
@@ -74,12 +36,8 @@ export function writeJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
 }
 
-/**
- * 把 config 里那几项**全局字段**摘出来（Key / 模型 / 接口）。
- * 只取存在的键，不补默认值 —— 没设过就别往全局里写空值。
- */
 export function pickGlobal(config) {
-  // ⚠️ 默认参数只在 undefined 时生效，传 null 进来会当场炸（测试正好抓到了这条）
+
   const src = config && typeof config === 'object' ? config : {};
   const out = {};
   for (const k of GLOBAL_FIELDS) {
@@ -88,16 +46,6 @@ export function pickGlobal(config) {
   return out;
 }
 
-/**
- * 读全局设置，并把老数据迁进来。
- *
- * 老用户的 Key 还在**某个好友**的 config 里（那时候还没有全局这一说）：
- * 全局是空的话，就拿传入的这份 config 当种子写一次 ——
- * 于是"他升级之后 Key 还在"，而新加的好友也能直接用同一个 Key。
- *
- * @param {object} [legacy] 当前好友的 config（迁移用）
- * @returns {object} 全局字段
- */
 export function readGlobal(legacy = {}) {
   const saved = readJSON(GLOBAL_KEY, null);
   if (saved && typeof saved === 'object') return pickGlobal(saved);
@@ -112,13 +60,6 @@ export function writeGlobal(patch = {}) {
   return writeJSON(GLOBAL_KEY, { ...cur, ...pickGlobal(patch) });
 }
 
-/**
- * 反过来：把全局字段从一份 config 里剔掉。
- *
- * 存**好友自己的** config 时用它 —— Key 只留全局那一份，
- * 别再散在 N 个好友的配置里（改一次要对 N 处负责，迟早不一致）。
- * 内存里的 state.config 仍然带着这几项，界面照常用。
- */
 export function omitGlobal(config = {}) {
   const out = { ...config };
   for (const k of GLOBAL_FIELDS) delete out[k];
@@ -138,18 +79,10 @@ export function fillDefaults(obj, defaults) {
   return obj;
 }
 
-/**
- * 把存下来的东西恢复成一个能用的 state.config。
- *
- * 注意是**原地合并**（Object.assign），不能替换对象：见文件顶部那条约定。
- * 老配置升级后需要落盘时，由调用方通过 onUpgraded 回调决定（这里不写盘）。
- */
 export function fixConfigShape(config, onUpgraded = () => {}) {
   fillDefaults(config, { herTraits: [], personaDone: false });
   if (config.herGender !== 'm') config.herGender = 'f';
 
-  // 老配置升级：DeepSeek 已经下线 deepseek-chat / deepseek-reasoner，
-  // 不换过来的话一开口就报错（用户看到的就是「API 坏了」）。
   if (config.provider !== 'deepseek' && !/^deepseek-/i.test(config.model || '')) return config;
 
   const fixed = upgradeModel(config.model);
@@ -160,14 +93,6 @@ export function fixConfigShape(config, onUpgraded = () => {}) {
   return config;
 }
 
-/**
- * 档案里那些"老数据没有、要补上"的字段。
- *
- * ⚠️ 好感度**不能写进 fillDefaults 的默认表**：那张表按"类型不一致就覆盖"工作，
- * 而"没设过"的默认值只能是 null —— null 和数字类型不同，会把用户设过的
- * 62 直接覆盖成 null（踩过一次，test-persona 的 [6] 一节当场变红）。
- * 所以它单独走 sanitizeAffection：只有真的缺/坏了才变成 null。
- */
 export function fixProfileShape(profile, messages = []) {
   fillDefaults(profile, {
     facts: [], summary: [], factsManual: [], summaryManual: [],
@@ -175,27 +100,18 @@ export function fixProfileShape(profile, messages = []) {
     sceneCustom: false,
     msgCount: messages.length,
   });
-  // 好感度没设过就是 null（不是 0）——0 会被当成"她讨厌你"，那是两回事
+
   profile.affection = sanitizeAffection(profile.affection);
   profile.affectionBase = sanitizeAffection(profile.affectionBase);
   return profile;
 }
 
-/**
- * 存下来的好感度只做范围校验，**不取整** ——
- * 取整会把"每句涨 0.4"的进度抹掉，越聊越不涨。
- *
- * null / undefined / '' 要单独挡掉：Number(null) === 0，
- * 不挡的话"没设过"会被读成"好感度 0（她讨厌你）"。
- */
 export function sanitizeAffection(v) {
   if (v == null || v === '') return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Math.min(100, n));
 }
-
-// ---------------------------------------------------------------- 占用
 
 /** 整个 localStorage 用掉多少字节（UTF-16 所以 ×2） */
 export function storageUsed() {
@@ -214,19 +130,6 @@ export function historyBytes(messages) {
   try { return JSON.stringify(messages).length * 2; } catch { return 0; }
 }
 
-// ---------------------------------------------------------------- 写
-
-/**
- * 写聊天记录。storage 满的时候会**尽量少砍**，而不是闷声砍掉四分之一。
- *
- * 老写法是失败就砍掉最早的四分之一 —— 用户导入一大批记录后会看到
- * "导入成功了但记录没了"，非常坑。现在二分找到"砍到多少条才存得下"。
- *
- * @param {object} p
- * @param {Array}  p.messages    要存的记录
- * @returns {{ok:boolean, kept:Array, dropped:number}}
- *          ok=false 表示一条都没存下（多半是头像图片太大）
- */
 export function writeChat({ messages, key = CHAT_KEY }) {
   const list = Array.isArray(messages) ? messages : [];
   try {
@@ -234,7 +137,6 @@ export function writeChat({ messages, key = CHAT_KEY }) {
     return { ok: true, kept: list, dropped: 0 };
   } catch {}
 
-  // 二分找"砍到多少条才存得下"，尽量少砍
   let lo = 0;
   let hi = list.length;
   let kept = null;
@@ -276,15 +178,6 @@ export function writeConfig(config, key = CFG_KEY) {
   try { localStorage.setItem(key, JSON.stringify(config)); return true; } catch { return false; }
 }
 
-/**
- * 删掉几个 key（删好友 / 撤销刚建的空好友时用）。
- *
- * 为什么不让调用方自己 removeItem：那样"谁碰 localStorage"就散到各处去了，
- * 而这里是**唯一**该碰它的模块。删档是不可逆动作，集中一处也更好审。
- *
- * @param {string[]} keys
- * @returns {number} 真删掉几个
- */
 export function removeKeys(keys = []) {
   let n = 0;
   for (const k of keys) {
@@ -294,12 +187,6 @@ export function removeKeys(keys = []) {
   return n;
 }
 
-// ---------------------------------------------------------------- 存盘前的整理
-
-/**
- * 按遗忘曲线淘汰：反复提到的留下，说过一次的小事慢慢淡掉。
- * 淘汰掉的不直接丢，挪进 faded（记忆页里能看到"她淡忘了什么"）。
- */
 export function decayProfileFacts(profile, t) {
   const dm = decayFacts(profile.facts || [], profile.factsMeta || {}, t);
   if (dm.forgotten.length) {
@@ -319,7 +206,7 @@ export function hoistManualEntries(profile, t) {
     const man = Array.isArray(profile[manual]) ? profile[manual].slice(-30) : [];
     profile[manual] = man;
     const auto = (profile[all] || []).filter((x) => !man.includes(x));
-    // 去重：手动和自动可能撞车
+
     profile[all] = [...new Set([...man, ...auto.slice(-keep)])];
   }
   for (const f of profile.factsManual || []) {
