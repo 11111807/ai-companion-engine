@@ -206,8 +206,11 @@ console.log('\n[4.1] 她没写"思考"时，自动补一次（用户连问两轮
     /他今天怎么这么客气/.test($('#messages .wx-think-body')?.textContent || ''),
     $('#messages .wx-think-body')?.textContent);
   const ask = JSON.stringify(app.lastRequest().messages);
-  check('补的请求里带着"你忘了写内心"的纠正',
-    /忘了写/.test(ask) && /内心/.test(ask) && /\[\[思考\]\]/.test(ask));
+  // ⚠️ 措辞这一轮从 `（系统提示：…）` 改成了 `[系统] …` ——
+  //    用括号包指令会被模型当成旁白**原样复述**出来（实测泄漏到气泡里）。
+  check('补的请求里带着"漏了内心"的纠正', /漏了/.test(ask) && /内心/.test(ask) && /\[\[思考\]\]/.test(ask));
+  check('⭐ 纠正的措辞不再用括号包着（括号=旁白，会被复述）',
+    /\[系统\]/.test(ask) && !/（系统提示/.test(ask));
   check('只补一次，不循环', app.requests.length === 2);
 
   // 她已经写了的时候：一次请求都不多发（不能为了兜底每轮都花两次钱）

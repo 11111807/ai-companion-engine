@@ -69,7 +69,7 @@ const VAR_OF = {
 const APP_MODULES = [
   'persona', 'zodiac', 'affection', 'relation', 'api', 'providers', 'habits', 'memory',
   'emotion', 'format', 'storage', 'presets', 'me', 'friend-ui', 'ending-ui', 'mood',
-  'personas', 'memory-io', 'search', 'narration', 'thought', 'repeat', 'voice', 'ending', 'chunk',
+  'personas', 'memory-io', 'search', 'narration', 'thought', 'repeat', 'voice', 'ending', 'chunk', 'repair',
 ];
 
 /** 把 `import { a, b as c } from './x.js'` 换成 `const { a, b: c } = __x;` */
@@ -112,7 +112,8 @@ const EXPORTS = {
     'LAZY_ACTIONS', 'isLazyNarration', 'lazyNarrationBlock'],
   thought: ['parseThoughtBlock', 'thinkPause', 'thoughtPrompt', 'recentThoughts', 'thoughtVaryBlock'],
   repeat: ['repeatedTopics', 'repeatBlock'],
-  chunk: ['stripLabel', 'splitMessages', 'replyItems'],
+  chunk: ['stripLabel', 'splitMessages', 'replyItems', 'isLeaked'],
+  repair: ['createRepair'],
   voice: ['voiceOf', 'toneOf', 'voiceBlock', 'voiceHint'],
   ending: ['detectEnding', 'DREAM_NARRATION', 'ENDING_DIALOG'],
   search: ['SEARCH_MAX_HITS', 'termsOf', 'searchMessages', 'snippetOf'],
@@ -182,6 +183,7 @@ export function inlineScript(dir = '') {
     thought: load('thought', 'thought'),
     repeat: load('repeat', 'repeat'),
     chunk: load('chunk', 'chunk'),
+    repair: load('repair', 'repair'),
     voice: load('voice', 'voice'),
     ending: load('ending', 'ending'),
     search: load('search', 'search'),
@@ -240,6 +242,9 @@ export function inlineScript(dir = '') {
       })();
       const __chunk = (function () { ${src.chunk}
         return { ${pick(names('chunk'))} };
+      })();
+      const __repair = (function () { ${src.repair}
+        return { ${pick(names('repair'))} };
       })();
       const __voice = (function () { ${src.voice}
         return { ${pick(names('voice'))} };

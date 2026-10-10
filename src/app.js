@@ -55,6 +55,9 @@ import { createFriendUI } from './friend-ui.js';
 // 终局确认 / 删档 / 删好友 / 撤销刚建的空好友 —— 和 friend-ui 一样用工厂模式。
 // （app.js 的行数上限抬了太多次，上一轮就写明这一块要搬出去。）
 import { createEndingUI } from './ending-ui.js';
+// "再问一次"的三个兜底（补台词 / 补内心 / 重说一遍）—— 搬去独立模块了：
+// 那边行数一直贴着上限，而这三件事本来就自成一体（见 repair.js 的说明）。
+import { createRepair } from './repair.js';
 import {
   MOODS, MOOD_KEYS, MAX_SHOWN, moodMeta, topMoods, decayMood, blend, normalize as normalizeMood,
   parseMoodBlock, guessMood, moodBlock, moodText,
@@ -74,7 +77,7 @@ import {
 import { SEARCH_MAX_HITS, searchMessages as searchIn, snippetOf } from './search.js';
 import { splitNarration, recentNarrations, narrationVaryBlock, isLazyNarration } from './narration.js';
 // 她的回复 → 待上屏的条目（连发拆分 / 行首标签 / 角色名前缀）。纯函数，可单测。
-import { replyItems as chunkItems } from './chunk.js';
+import { replyItems as chunkItems, isLeaked } from './chunk.js';
 import { parseThoughtBlock, thinkPause, recentThoughts, thoughtVaryBlock } from './thought.js';
 // 她最近几轮反复提到的事（台词 + 内心都算）——
 // 旁白和内心各自有"别重复"的防护，唯独"同一件事被反复拿出来说"一直没人管
@@ -901,6 +904,9 @@ function messageHTML(msg, prev, idx) {
 function thinkHTML(msg, out) {
   if (!msg?.think || out) return '';
   if (state.config.showThink === false) return '';   // 设置里关掉了就整块不画
+  // 泄漏内容不能给他看（模型偶尔把补请求的指令复述进"内心"那一块）。
+  // 守在这一处就够：所有画思考块的路径都从这儿过，刷新重画也一样。
+  if (isLeaked(msg.think)) return '';
   const ms = Number(msg.thinkMs);
   // 下限 0.1 秒：别显示成"思考 0.0 秒"（本地推理可能真的很快，但那个数字看着像 bug）
   const secs = ms > 0 ? ` ${Math.max(0.1, ms / 1000).toFixed(1)} 秒` : '';
@@ -1240,6 +1246,23 @@ function pushUserMessage(msg) {
 
 let endingUI = null;
 
+/**
+ * "再问一次"的三个兜底（补台词 / 补内心 / 重说一遍）—— 实现在 src/repair.js，
+ * 这里只喂依赖 + 留薄封装，调用点照旧用老名字。
+ */
+let repair = null;
+
+function initRepair() {
+  repair = createRepair({
+    state, getProvider, nativeStreamChat, streamChat, DEFAULT_ENDPOINT, DEFAULT_MODEL,
+    parseThoughtBlock, parseMoodBlock, extractMemory, replyItems, narrLine,
+  });
+}
+
+const askForWords = (a) => repair.askForWords(a);
+const askForThought = (a) => repair.askForThought(a);
+const askAgain = (a) => repair.askAgain(a);
+
 function initEndingUI() {
   endingUI = createEndingUI({
     state, $, toast, herName, keysFor, removeKeys, findPersona, removePersona, setActive,
@@ -1471,124 +1494,6 @@ async function nativeStreamChat({ systemPrompt, messages, temperature, maxTokens
   return text;
 }
 
-/** 发一次"只要一小段"的请求（三个兜底共用：补台词 / 补内心 / 重说一遍）。
- *  它们原来各有一份一模一样的请求代码，改一处忘两处是迟早的事。 */
-async function onceText(args) {
-  if (getProvider(state.config.provider).id === 'native-local') return nativeStreamChat(args);
-  let out = '';
-  await streamChat({
-    ...args,
-    apiKey: state.config.apiKey.trim(),
-    endpoint: state.config.endpoint || DEFAULT_ENDPOINT,
-    model: state.config.model || DEFAULT_MODEL,
-    thinking: false,          // 补一小段不用深度思考
-    onDelta(piece) { out += piece; },
-  });
-  return out;
-}
-
-/**
- * 兜底：她只写了动作、一个字都没说，把欠的那句话要回来。
- *
- * 为什么要在代码里兜，而不是只写进提示词（用户实测踩到的场景）：
- *   他问"几点了" → 她只发"（抬头看墙上的钟）"，然后就没了 —— 他还得再问一遍。
- *   提示词只能降低这种概率（见 persona.js 的【他在等你的回答】），
- *   但"这一轮白聊了"是他明确不能接受的，所以在渲染前补一道：
- *   再问一次，**只要台词**，跟原来那个动作拼起来。
- *
- * ⚠️ 顺便**把"思考"一起要回来**：她要是连动作都只写了一块，多半也没写内心。
- *    分两次请求太贵（一次对话变三次），所以这里一次问齐。
- *
- * 三条自我约束：
- *   1. 只在**整轮都是旁白**时触发 —— 正常回复一次请求都不会多发
- *   2. 一轮最多补一次；补回来还是旁白就认了（**绝不循环**）
- *   3. 补的过程失败（断网/超时）就当没发生，原来的旁白照常显示
- *
- * @returns {Promise<{words: string[], thought: string}>}
- */
-async function askForWords({ systemPrompt, history, narration, signal }) {
-  const messages = [
-    ...history,
-    { role: 'assistant', content: narrLine(narration) },
-    {
-      role: 'user',
-      content: '（系统提示：你刚才只发了一个动作，什么都没说 —— 他现在在等你的回答。'
-        + '说一句就行，**哪怕只有两三个字**（"哈哈""在的""嗯嗯""刚看到"）。'
-        + '不要再重复那个动作，也不要再写括号旁白 —— 一个括号都不要写。'
-        + '另外别忘了最前面那块 [[思考]] —— 你对下一句话的心里话。）',
-    },
-  ];
-  const args = {
-    systemPrompt,
-    messages,
-    temperature: Number(state.config.temperature) || 1.0,
-    maxTokens: 140,
-    signal,
-  };
-
-  try {
-    const out = await onceText(args);
-    // 她可能又顺手带上隐藏块（记忆 / 情绪 / 思考）→ 擦掉，这里只取台词 + 思考
-    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
-    const words = replyItems(cut.clean, 1).filter((it) => !it.narr).map((it) => it.content);
-    return { words, thought: cut.thought };
-  } catch {
-    return { words: [], thought: '' };
-  }
-}
-
-/**
- * 兜底：她这一轮**没写"思考"**，把那一句补回来。
- *
- * 为什么要在代码里兜（用户连问了两轮"还是没有看到"）：
- *   思考块是**模型按格式写出来的**，提示词只能提高概率 ——
- *   而"没写"在界面上和"功能坏了"长得一模一样。
- *   所以这里补一次"只要内心"的短请求（maxTokens 80）：
- *     - 只在她**没写**时触发 —— 写了就一次请求都不会多发
- *     - 一轮最多补一次；补不回来就认了（**绝不循环**）
- *     - 失败就当没发生，原来的回复照常显示
- *
- * @returns {Promise<string>} 补回来的那句心里话（可能为空串）
- */
-async function askForThought({ systemPrompt, history, reply, signal, avoid = [] }) {
-  // avoid：她这几轮一直在惦记的事。写了但还在想同一件事时也走这条路（见 respond）。
-  const bad = (Array.isArray(avoid) ? avoid : []).map((x) => x?.text).filter(Boolean).join('、');
-  const messages = [
-    ...history,
-    { role: 'assistant', content: reply },
-    {
-      role: 'user',
-      content: '（系统提示：你刚才忘了写"内心"那一块。现在**只**输出那一块，'
-        + '格式是：[[思考]]你此刻对下一句话的心里话（10~50 字，第一人称，'
-        + '不写动作、不复述他已经知道的话，也**别用"他…了，我应该…"这种句式** —— '
-        + '像人一样随口想一下）。不要重复你说过的台词，不要写别的。）'
-        + (bad ? `\n⚠️ 而且：**不要再想「${bad}」这件事** ——`
-          + '你最近几轮一直在惦记它。想一件**当下**的（他刚说的这句话、你手上正在做的事）。' : ''),
-    },
-  ];
-  const args = {
-    systemPrompt,
-    messages,
-    temperature: Number(state.config.temperature) || 1.0,
-    maxTokens: 80,
-    signal,
-  };
-
-  try {
-    const out = await onceText(args);
-    // 她可能直接回了心里话、也可能还是带着 [[思考]] 标记 —— 两种都要能取到。
-    // ⚠️ 兜底（cut.clean）拿到的其实是**她的台词**，所以只取第一行、并且去掉
-    //    括号旁白 —— 不然整段台词会被当成"内心"存下来，下一轮又原样列进提示词里
-    //    （实测会把她的旁白在【你最近写过的旁白】旁边重复列一遍）。
-    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
-    const thought = cut.thought || cut.clean.split('\n').find((s) => s.trim()) || '';
-    return String(thought).replace(/\[\[[^\]]*\]\]/g, '').replace(/[（(][^）)]*[）)]/g, '')
-      .trim().slice(0, 60);
-  } catch {
-    return '';
-  }
-}
-
 /**
  * 这一轮生成**属于**哪个好友。
  *
@@ -1602,52 +1507,9 @@ async function askForThought({ systemPrompt, history, reply, signal, avoid = [] 
  *    那样两个生成前后脚收尾时，后一个会把前一个的标记清掉，守卫就失效了。
  */
 const movedAway = (owner) => state.nav.active !== owner;
-
 /** 这一段话里，有没有又提起那几件\"最近反复提\"的事 */
 const hitsRepeat = (text, list) => (Array.isArray(list) ? list : [])
   .some((x) => x?.text && String(text || '').includes(x.text));
-
-/**
- * 让她**重说一遍**（这一轮又提了那件反复提的事）。
- *
- * 用户实测："哪怕我提示说不要再说这个了、我已经记得了，过一两轮依旧会反复强调。"
- * 提示词里写了"别再提"（repeatBlock），但那是**软约束** —— 上下文一长就冲淡了。
- * 所以这里事后检查：真出现了那几个片段就重新请求一次，并且**点名**说清。
- * 规矩同"只发旁白就补一次"：**一轮最多重写一次**，补不回来就认了（绝不循环）。
- *
- * @returns {Promise<string>} 重写后的文本（失败返回空串）
- */
-async function askAgain({ systemPrompt, history, reply, repeats, signal }) {
-  const bad = (Array.isArray(repeats) ? repeats : []).map((x) => x?.text).filter(Boolean).join('、');
-  if (!bad) return '';
-  const messages = [
-    ...history,
-    { role: 'assistant', content: reply },
-    {
-      role: 'user',
-      content: `（系统提示：你刚才又提了「${bad}」—— 这件事你最近几轮已经反复说过了，`
-        + '他明确说过不喜欢听重复的。现在**重说一遍**这一轮的回答：'
-        + '同样的意思可以，但**不要再提它**，也不要换个说法再说一遍。'
-        + '说不出来就少说一句。只输出你要发的话，不要解释。）',
-    },
-  ];
-  const args = {
-    systemPrompt,
-    messages,
-    temperature: Number(state.config.temperature) || 1.0,
-    maxTokens: Number(state.config.maxTokens) || 250,
-    signal,
-  };
-
-  try {
-    const out = await onceText(args);
-    // 她可能又带上隐藏块 → 擦掉，这里只取台词
-    const cut = parseThoughtBlock(parseMoodBlock(extractMemory(out).clean).clean);
-    return String(cut.clean || '').trim().slice(0, 600);
-  } catch {
-    return '';
-  }
-}
 
 /** 让她回复（也被"重新开始"复用） */
 async function respond() {
@@ -1829,8 +1691,8 @@ async function respond() {
     // 这一轮已经补过一次请求了吗 —— **最多补一次**，几个兜底不能叠着花好几次钱
     let repaired = false;
 
-    // ⭐ 又说了一遍那件反复提的事 → 让她重说。提示词里写过"别再提"，但那是软约束
-    //   （用户："哪怕我说不要再说这个了，过一两轮依旧会反复强调"），所以这里事后检查 + 点名重写。
+    // ⭐ 又说了一遍那件反复提的事 → 让她重说。提示词里写过"别再提"，但那是软约束，
+    //   所以这里事后检查 + 点名重写（用户："说了不要再说，过一两轮又来"）。
     if (parts.length && repeats.length && !parts.every((it) => it.narr)
         && hitsRepeat(parts.map((it) => it.content).join('\n'), repeats)) {
       const again = await askAgain({
@@ -1849,12 +1711,16 @@ async function respond() {
       }
     }
 
-    // 整轮都是旁白 → 把欠的那句话要回来，而不是让他再问一遍（见 askForWords）
-    if (parts.length && parts.every((it) => it.narr)) {
+    // 整轮**一句台词都没有** → 把欠的那句话要回来（见 askForWords）。
+    // ⚠️ 判据是"没有台词"而不是"只有旁白"：她这一轮还可能什么都没吐出来
+    //    （整段被泄漏闸拦掉、或者只回了隐藏块）。原来那个写法在空数组时会跳过补台词，
+    //    屏幕上只剩一句"……嗯"（实测踩到）。
+    if (!parts.some((it) => !it.narr)) {
       const r = await askForWords({
         systemPrompt,
         history,
-        narration: parts.map((it) => it.content).join('；'),
+        // 她可能连旁白都没有（内容全被拦掉了）—— 给个占位的舞台说明，别传空串
+        narration: parts.map((it) => it.content).join('；') || '（她张了张嘴，什么都没说出来）',
         signal: ctrl.signal,
       });
       const said = r.words.map((content) => ({ content, narr: false }));
@@ -4494,6 +4360,7 @@ function init() {
   renderChat();
   initFriendUI();       // 好友界面要用到上面那些函数，所以在这儿初始化
   initEndingUI();       // 终局/删档那一套同理（它也要 renderChat、loadPersona…）
+  initRepair();         // 三个"再问一次"的兜底（补台词 / 补内心 / 重说一遍）
   bindEvents();
   setupDownloadEntry();
   renderAffection();
