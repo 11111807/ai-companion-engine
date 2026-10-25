@@ -11,6 +11,11 @@ export const LEGACY_MODELS = {
   'deepseek-v3.1': 'deepseek-flash',
   'deepseek-v3.2': 'deepseek-flash',
   'deepseek-r1': 'deepseek-v4-pro',
+  /** V4.1-Flash-1017 之后这些老名字都由新模型提供服务，统一收拢到 deepseek-flash */
+  'deepseek-v4-flash': 'deepseek-flash',
+  'deepseek-v4-flash-vision-exp': 'deepseek-flash',
+  'deepseek-v4.1-flash': 'deepseek-flash',
+  'deepseek-v4.1-flash-1017': 'deepseek-flash',
 };
 
 /** 把可能过期的模型名换成现在能用的 */

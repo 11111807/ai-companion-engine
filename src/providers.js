@@ -6,7 +6,7 @@ export const PROVIDERS = [
     model: 'deepseek-flash',
     models: ['deepseek-flash', 'deepseek-v4-pro'],
     signup: 'https://platform.deepseek.com/',
-    hint: '国内直连，便宜。陪聊一天大概几毛钱。deepseek-flash 快而省，deepseek-v4-pro 更聪明但贵一些。',
+    hint: '国内直连，便宜。陪聊一天大概几毛钱。deepseek-flash 快而省（现在是 V4.1-Flash-1017），deepseek-v4-pro 更聪明但贵一些。',
     cost: '付费（很便宜）',
   },
   {
